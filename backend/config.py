@@ -24,7 +24,7 @@ NODES_COLLECTION = "nodes"
 DECOYS_COLLECTION = "decoys"
 
 # ML Service URL
-ML_API_URL = os.getenv("ML_API_URL", "http://localhost:8000")
+ML_API_URL = os.getenv("ML_API_URL", "https://ml-modle-v0-2.onrender.com")
 if ML_API_URL.rstrip("/").endswith("/predict"):
     ML_PREDICT_ENDPOINT = ML_API_URL
 else:
