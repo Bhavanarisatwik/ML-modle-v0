@@ -35,7 +35,7 @@ class NodeService:
             "user_id": user_id,
             "name": name,
             "status": "active",
-            "api_key": NodeService.generate_api_key(),
+            "node_api_key": NodeService.generate_api_key(),
             "last_seen": None,
             "created_at": now
         }

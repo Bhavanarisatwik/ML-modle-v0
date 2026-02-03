@@ -8,7 +8,7 @@ from typing import List, Optional
 from datetime import datetime
 import logging
 
-from models.log_models import NodeCreate, NodeResponse, NodeUpdate, DecoyResponse
+from models.log_models import NodeCreate, NodeResponse, NodeCreateResponse, NodeUpdate, DecoyResponse
 from services.db_service import db_service
 from services.node_service import node_service
 from config import AUTH_ENABLED
@@ -26,7 +26,7 @@ def get_user_id_from_header(authorization: Optional[str] = Header(None)) -> str:
     return user_id or DEMO_USER_ID
 
 
-@router.post("", response_model=NodeResponse)
+@router.post("", response_model=NodeCreateResponse)
 async def create_node(
     node: NodeCreate,
     authorization: Optional[str] = Header(None)
@@ -34,7 +34,7 @@ async def create_node(
     """
     Create new node
     
-    Returns node_id and api_key for authentication
+    Returns node_id and node_api_key for authentication
     """
     try:
         user_id = get_user_id_from_header(authorization)
@@ -49,7 +49,7 @@ async def create_node(
         if not result:
             raise HTTPException(status_code=500, detail="Failed to create node")
         
-        return NodeResponse(**node_data)
+        return NodeCreateResponse(**node_data)
     except HTTPException:
         raise
     except Exception as e:

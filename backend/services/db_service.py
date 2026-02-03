@@ -42,49 +42,9 @@ class DatabaseService:
             # Test connection
             await self.client.admin.command('ping')
             logger.info("✓ Connected to MongoDB")
-            
-            # Create indexes for performance and data integrity
-            await self._create_indexes()
-            logger.info("✓ Database indexes created")
         except Exception as e:
             logger.error(f"✗ MongoDB connection failed: {e}")
             logger.warning("Running without database (logs will not be persisted)")
-    
-    async def _create_indexes(self):
-        """Create MongoDB indexes for performance"""
-        try:
-            # Users collection - email must be unique
-            await self.db[USERS_COLLECTION].create_index("email", unique=True)
-            logger.info("  - Created unique index on users.email")
-            
-            # Nodes collection - node_id must be unique, index user_id for lookups
-            await self.db[NODES_COLLECTION].create_index("node_id", unique=True)
-            await self.db[NODES_COLLECTION].create_index("user_id")
-            logger.info("  - Created unique index on nodes.node_id")
-            logger.info("  - Created index on nodes.user_id")
-            
-            # Alerts collection - index user_id and risk_score for dashboard queries
-            await self.db[ALERTS_COLLECTION].create_index("user_id")
-            await self.db[ALERTS_COLLECTION].create_index("risk_score")
-            await self.db[ALERTS_COLLECTION].create_index([("user_id", 1), ("timestamp", -1)])
-            logger.info("  - Created index on alerts.user_id")
-            logger.info("  - Created index on alerts.risk_score")
-            logger.info("  - Created compound index on alerts.user_id + timestamp")
-            
-            # Decoys collection - index node_id for decoy lookups
-            await self.db[DECOYS_COLLECTION].create_index("node_id")
-            logger.info("  - Created index on decoys.node_id")
-            
-            # Honeypot logs - index node_id for queries
-            await self.db[HONEYPOT_LOGS_COLLECTION].create_index("node_id")
-            logger.info("  - Created index on honeypot_logs.node_id")
-            
-            # Agent events - index node_id for queries
-            await self.db[AGENT_EVENTS_COLLECTION].create_index("node_id")
-            logger.info("  - Created index on agent_events.node_id")
-            
-        except Exception as e:
-            logger.warning(f"Failed to create some indexes (may already exist): {e}")
     
     async def disconnect(self):
         """Disconnect from MongoDB"""

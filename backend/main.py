@@ -15,6 +15,7 @@ from config import (
 )
 from routes import auth_router, nodes_router, honeypot_router, agent_router, alerts_router
 from services.db_service import db_service
+from services.db_indexes import create_indexes
 
 # Setup logging
 logging.basicConfig(
@@ -31,6 +32,9 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("🚀 Backend server starting...")
     await db_service.connect()
+    if db_service.db is not None:
+        await create_indexes(db_service.db)
+        logger.info("✓ Database indexes created")
     logger.info(f"🔐 Authentication: {'ENABLED' if AUTH_ENABLED else 'DISABLED (Demo Mode)'}")
     yield
     # Shutdown

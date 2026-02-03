@@ -48,9 +48,13 @@ class NodeResponse(BaseModel):
     user_id: str
     name: str
     status: str  # "active" or "inactive"
-    api_key: Optional[str] = None  # API key for node authentication
     last_seen: Optional[str] = None
     created_at: str
+
+
+class NodeCreateResponse(NodeResponse):
+    """Node creation response (includes API key once)"""
+    node_api_key: str
 
 
 class NodeUpdate(BaseModel):
@@ -78,7 +82,7 @@ class HoneypotLog(BaseModel):
     payload: str = Field(default="", max_length=10000, description="Payload data (max 10KB)")
     timestamp: str = Field(..., description="ISO timestamp")
     extra: Optional[Dict[str, Any]] = Field(default=None, description="Additional metadata")
-    node_id: Optional[str] = Field(default=None, description="Node ID (required if AUTH_ENABLED)")
+    node_id: Optional[str] = Field(default=None, description="Deprecated: ignored. Use X-Node-Id header")
 
 
 class AgentEvent(BaseModel):
@@ -88,7 +92,7 @@ class AgentEvent(BaseModel):
     username: str = Field(..., max_length=100, description="Username who triggered event")
     file_accessed: str = Field(..., max_length=255, description="Honeytoken filename")
     file_path: str = Field(..., max_length=1024, description="Full file path")
-    node_id: Optional[str] = Field(default=None, description="Node ID (required if AUTH_ENABLED)")
+    node_id: Optional[str] = Field(default=None, description="Deprecated: ignored. Use X-Node-Id header")
     action: str = Field(..., max_length=50, description="Action: ACCESSED, MODIFIED")
     severity: str = Field(..., max_length=20, description="Severity: CRITICAL, HIGH, MEDIUM, LOW")
     alert_type: str = Field(..., max_length=100, description="Alert type")
