@@ -8,7 +8,7 @@ import os
 # MongoDB Atlas Connection
 MONGODB_URI = os.getenv(
     "MONGODB_URI",
-    "mongodb+srv://satwikbhavanari_db_user:<db_password>@decoyverseprod.wogbyey.mongodb.net/?appName=DecoyVerseprod"
+    "mongodb+srv://decoyverse_user:XF07W87YU4JWVY8f@decoy.ygwnyen.mongodb.net/decoyvers?retryWrites=true&w=majority"
 )
 
 # Database name
@@ -46,7 +46,7 @@ API_VERSION = "2.0.0"
 API_DESCRIPTION = "Multi-node cyber deception security platform"
 
 # Authentication settings
-AUTH_ENABLED = os.getenv("AUTH_ENABLED", "True").lower() == "true"
+AUTH_ENABLED = os.getenv("AUTH_ENABLED", "False").lower() == "true"
 
 # JWT Secret Key - REQUIRED in production
 JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
