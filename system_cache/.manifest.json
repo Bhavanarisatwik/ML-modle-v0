@@ -1,0 +1,32 @@
+[
+  {
+    "type": "aws_credentials",
+    "path": "system_cache\\aws_keys.txt",
+    "size": 572,
+    "created": "2026-02-03T21:50:51.160227"
+  },
+  {
+    "type": "database_credentials",
+    "path": "system_cache\\db_creds.env",
+    "size": 688,
+    "created": "2026-02-03T21:50:51.161230"
+  },
+  {
+    "type": "employee_data",
+    "path": "system_cache\\employee_salary.xlsx",
+    "size": 644,
+    "created": "2026-02-03T21:50:51.161230"
+  },
+  {
+    "type": "database_backup",
+    "path": "system_cache\\server_backup.sql",
+    "size": 1294,
+    "created": "2026-02-03T21:50:51.162656"
+  },
+  {
+    "type": "api_keys",
+    "path": "system_cache\\api_keys.json",
+    "size": 506,
+    "created": "2026-02-03T21:50:51.163858"
+  }
+]
