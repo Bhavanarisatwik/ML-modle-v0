@@ -31,10 +31,16 @@ async def lifespan(app: FastAPI):
     """Manage application startup and shutdown"""
     # Startup
     logger.info("🚀 Backend server starting...")
-    await db_service.connect()
-    if db_service.db is not None:
-        await create_indexes(db_service.db)
-        logger.info("✓ Database indexes created")
+    try:
+        await db_service.connect()
+        if db_service.db is not None:
+            await create_indexes(db_service.db)
+            logger.info("✓ Database indexes created")
+        else:
+            logger.warning("⚠️ Running without database - indexes not created")
+    except Exception as e:
+        logger.error(f"✗ Database initialization failed: {e}")
+        logger.warning("⚠️ Continuing without database")
     logger.info(f"🔐 Authentication: {'ENABLED' if AUTH_ENABLED else 'DISABLED (Demo Mode)'}")
     yield
     # Shutdown

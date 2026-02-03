@@ -45,6 +45,8 @@ class DatabaseService:
         except Exception as e:
             logger.error(f"✗ MongoDB connection failed: {e}")
             logger.warning("Running without database (logs will not be persisted)")
+            self.db = None  # Ensure db is None on failure
+            self.client = None
     
     async def disconnect(self):
         """Disconnect from MongoDB"""
