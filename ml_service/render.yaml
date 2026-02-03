@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: decoyvers-ml
+    runtime: python
+    rootDir: ml_service
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn ml_api:app --host 0.0.0.0 --port 10000
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.8"
