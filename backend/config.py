@@ -8,7 +8,7 @@ import os
 # MongoDB Atlas Connection
 MONGODB_URI = os.getenv(
     "MONGODB_URI",
-    "mongodb+srv://<username>:<password>@cluster.mongodb.net/decoyvers"
+    "mongodb+srv://satwikbhavanari_db_user:<db_password>@decoyverseprod.wogbyey.mongodb.net/?appName=DecoyVerseprod"
 )
 
 # Database name
