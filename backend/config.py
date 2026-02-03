@@ -31,7 +31,7 @@ else:
     ML_PREDICT_ENDPOINT = f"{ML_API_URL}/predict"
 
 # Alert threshold
-ALERT_RISK_THRESHOLD = 7
+ALERT_RISK_THRESHOLD = int(os.getenv("ALERT_RISK_THRESHOLD", "7"))
 
 # Backend server config
 BACKEND_HOST = "0.0.0.0"
