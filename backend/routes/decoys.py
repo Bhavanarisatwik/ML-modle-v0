@@ -24,26 +24,32 @@ def get_user_id_from_header(authorization: Optional[str] = Header(None)) -> str:
 
 class DecoyModel:
     """Decoy data model"""
-    def __init__(self, doc):
+    def __init__(self, doc, node_name: str = None):
         self.id = str(doc.get("_id", ""))
         self.node_id = doc.get("node_id", "")
+        self.node_name = node_name or doc.get("node_name", "")
         self.file_name = doc.get("file_name", "")
+        self.file_path = doc.get("file_path", "")
         self.type = doc.get("type", "file")  # service, file, port, honeytoken
         self.status = doc.get("status", "active")
         self.triggers_count = doc.get("triggers_count", 0)
         self.last_triggered = doc.get("last_triggered", None)
         self.port = doc.get("port", None)
+        self.created_at = doc.get("created_at", None)
 
     def to_dict(self):
         return {
             "id": self.id,
             "node_id": self.node_id,
+            "node_name": self.node_name,
             "type": self.type,
             "status": self.status,
             "triggers_count": self.triggers_count,
             "last_triggered": self.last_triggered,
             "port": self.port,
-            "file_name": self.file_name
+            "file_name": self.file_name,
+            "file_path": self.file_path,
+            "created_at": self.created_at
         }
 
 
@@ -64,13 +70,17 @@ async def get_decoys(
         nodes = await db_service.get_nodes_by_user(user_id)
         node_ids = [str(n.get("node_id", "")) for n in nodes if n.get("node_id")]
         
+        # Create node_id -> node_name mapping
+        node_names = {n.get("node_id"): n.get("name", "") for n in nodes}
+        
         # Get all decoys for user's nodes
         if not node_ids:
             return []
         
         decoys = await db_service.get_user_decoys(node_ids, limit)
         
-        return [DecoyModel(d).to_dict() for d in decoys]
+        # Add node_name to each decoy
+        return [DecoyModel(d, node_names.get(d.get("node_id"), "")).to_dict() for d in decoys]
     except Exception as e:
         logger.error(f"Error getting decoys: {e}")
         raise HTTPException(status_code=500, detail=str(e))

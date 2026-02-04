@@ -219,6 +219,23 @@ class DatabaseService:
             logger.error(f"Error getting decoys: {e}")
             return []
     
+    async def save_deployed_decoy(self, decoy_data: Dict[str, Any]) -> Optional[str]:
+        """Save a deployed decoy from agent (with file_path)"""
+        try:
+            # Upsert based on node_id and file_path to avoid duplicates
+            result = await self.db[DECOYS_COLLECTION].update_one(
+                {
+                    "node_id": decoy_data["node_id"], 
+                    "file_path": decoy_data.get("file_path", decoy_data.get("file_name"))
+                },
+                {"$set": decoy_data, "$setOnInsert": {"triggers_count": 0}},
+                upsert=True
+            )
+            return str(result.upserted_id) if result.upserted_id else decoy_data["node_id"]
+        except Exception as e:
+            logger.error(f"Error saving deployed decoy: {e}")
+            return None
+    
     # ==================== HONEYPOT LOG OPERATIONS ====================
     
     async def save_honeypot_log(self, log_data: Dict[str, Any], ml_prediction: Optional[Dict[str, Any]]) -> Optional[str]:

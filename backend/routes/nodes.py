@@ -46,8 +46,17 @@ async def create_node(
         if not user_id and AUTH_ENABLED:
             raise HTTPException(status_code=401, detail="Unauthorized")
         
-        # Create node
-        node_data = node_service.create_node_data(user_id, node.name)
+        # Create node with deployment config
+        deployment_config = None
+        if node.deployment_config:
+            deployment_config = node.deployment_config.model_dump()
+        
+        node_data = node_service.create_node_data(
+            user_id, 
+            node.name,
+            node.os_type or "windows",
+            deployment_config
+        )
         result = await db_service.create_node(node_data)
         
         if not result:
@@ -222,13 +231,22 @@ async def download_agent(
         if AUTH_ENABLED and node["user_id"] != user_id:
             raise HTTPException(status_code=403, detail="Permission denied")
         
+        # Get deployment config with defaults
+        deployment_config = node.get("deployment_config", {
+            "initial_decoys": 3,
+            "initial_honeytokens": 5,
+            "deploy_path": None
+        })
+        
         # Create config with node_id and node_api_key
         config = {
             "node_id": node["node_id"],
             "node_api_key": node["node_api_key"],
             "node_name": node["name"],
+            "os_type": node.get("os_type", "windows"),
             "backend_url": "https://ml-modle-v0-1.onrender.com/api",
-            "ml_service_url": "https://ml-modle-v0-2.onrender.com"
+            "ml_service_url": "https://ml-modle-v0-2.onrender.com",
+            "deployment_config": deployment_config
         }
         
         # For now, return config as JSON file

@@ -51,7 +51,7 @@ Write-Host "[INFO] Downloading agent files from $BackendUrl..." -ForegroundColor
 
 # Create agent config
 $ConfigPath = "$InstallDir\agent_config.json"
-$Config = @{
+$ConfigObject = @{
     node_api_key = $Token
     backend_url = "$BackendUrl/api"
     ml_service_url = "https://ml-modle-v0-2.onrender.com"
@@ -60,10 +60,23 @@ $Config = @{
         "$env:USERPROFILE\Desktop"
     )
     check_interval = 5
-} | ConvertTo-Json -Depth 3
+}
 
-$Config | Out-File -FilePath $ConfigPath -Encoding UTF8
-Write-Host "[OK] Created config: $ConfigPath" -ForegroundColor Green
+$ConfigJson = $ConfigObject | ConvertTo-Json -Depth 3
+
+try {
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($ConfigPath, $ConfigJson, $utf8NoBom)
+
+    if ((Get-Item $ConfigPath).Length -le 2) {
+        throw "agent_config.json was written but appears empty"
+    }
+
+    Write-Host "[OK] Created config: $ConfigPath" -ForegroundColor Green
+} catch {
+    Write-Host "[ERROR] Failed to write config: $($_.Exception.Message)" -ForegroundColor Red
+    exit 1
+}
 
 # Download agent script
 $AgentScript = @'
@@ -85,10 +98,16 @@ from pathlib import Path
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
-# Load config
+# Load config (handle UTF-8 BOM if present)
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "agent_config.json")
-with open(CONFIG_PATH) as f:
-    CONFIG = json.load(f)
+if not os.path.exists(CONFIG_PATH):
+    raise SystemExit(f"Config not found: {CONFIG_PATH}")
+
+with open(CONFIG_PATH, encoding="utf-8-sig") as f:
+    raw = f.read().strip()
+    if not raw:
+        raise SystemExit("agent_config.json is empty. Re-run installer to regenerate the config.")
+    CONFIG = json.loads(raw)
 
 NODE_API_KEY = CONFIG.get("node_api_key", "")
 BACKEND_URL = CONFIG.get("backend_url", "https://ml-modle-v0-1.onrender.com/api")

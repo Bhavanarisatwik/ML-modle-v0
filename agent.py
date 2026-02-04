@@ -22,16 +22,34 @@ class DeceptionAgent:
         self.setup = HoneytokenSetup(watch_dir)
         self.monitor = FileMonitor(watch_dir)
         self.sender = AlertSender()
+        self.registration = AgentRegistration(self.config)
         self.running = False
     
     def setup_honeytokens(self) -> bool:
-        """Setup honeytokens"""
+        """Setup honeytokens based on deployment config"""
         print("\n" + "="*70)
         print("🍯 PHASE 1: HONEYTOKEN DEPLOYMENT")
         print("="*70)
         
-        if self.setup.setup_all():
+        # Get deployment config from agent_config.json
+        deployment_config = self.config.get_deployment_config()
+        print(f"   Config: {deployment_config.get('initial_decoys', 3)} decoys, {deployment_config.get('initial_honeytokens', 5)} honeytokens")
+        
+        if self.setup.setup_all(deployment_config):
             print("\n✓ Honeytokens deployed successfully")
+            
+            # Register deployed decoys with backend
+            deployed_decoys = self.setup.get_deployed_decoys()
+            node_id = self.config.get_node_id()
+            node_api_key = self.config.get_node_api_key()
+            
+            if node_id and node_api_key and deployed_decoys:
+                self.registration.register_deployed_decoys(
+                    node_id, 
+                    node_api_key, 
+                    deployed_decoys
+                )
+            
             return True
         else:
             print("\n✗ Failed to deploy honeytokens")

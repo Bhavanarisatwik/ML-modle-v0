@@ -37,9 +37,18 @@ class TokenResponse(BaseModel):
 
 # ==================== NODE MODELS ====================
 
+class DeploymentConfig(BaseModel):
+    """Initial deployment configuration for agent"""
+    initial_decoys: int = Field(default=3, ge=0, le=20, description="Number of decoy files to deploy initially")
+    initial_honeytokens: int = Field(default=5, ge=0, le=20, description="Number of honeytokens to deploy initially")
+    deploy_path: Optional[str] = Field(default=None, description="Custom deployment directory path")
+
+
 class NodeCreate(BaseModel):
     """Create new node request"""
     name: str = Field(..., min_length=1, max_length=100)
+    os_type: Optional[str] = Field(default="windows", description="Operating system: windows, linux, macos")
+    deployment_config: Optional[DeploymentConfig] = Field(default=None, description="Initial deployment settings")
 
 
 class NodeResponse(BaseModel):
@@ -50,6 +59,8 @@ class NodeResponse(BaseModel):
     status: str  # "active" or "inactive"
     last_seen: Optional[str] = None
     created_at: str
+    os_type: Optional[str] = "windows"
+    deployment_config: Optional[DeploymentConfig] = None
 
 
 class NodeCreateResponse(NodeResponse):
@@ -64,12 +75,26 @@ class NodeUpdate(BaseModel):
 
 # ==================== DECOY MODELS ====================
 
+class DeployedDecoy(BaseModel):
+    """Register a deployed decoy from agent"""
+    file_name: str = Field(..., description="Name of the decoy file")
+    file_path: str = Field(..., description="Full path where deployed on the node")
+    type: str = Field(..., description="Type: file, service, port, honeytoken, aws_creds, db_creds, api_key")
+    status: str = Field(default="active", description="Status: active, triggered, disabled")
+
+
 class DecoyResponse(BaseModel):
     """Decoy file status"""
+    id: Optional[str] = None
     node_id: str
+    node_name: Optional[str] = None
     file_name: str
+    file_path: Optional[str] = None
     type: str
+    status: Optional[str] = "active"
+    triggers_count: Optional[int] = 0
     last_accessed: Optional[str] = None
+    created_at: Optional[str] = None
 
 
 # ==================== HONEYPOT & AGENT MODELS ====================

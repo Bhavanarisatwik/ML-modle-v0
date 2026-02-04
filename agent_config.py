@@ -67,6 +67,14 @@ class AgentConfig:
             "https://ml-modle-v0-1.onrender.com/api"
         )
     
+    def get_deployment_config(self) -> Dict:
+        """Get deployment configuration (initial decoys/honeytokens)"""
+        return self.config.get("deployment_config", {
+            "initial_decoys": 3,
+            "initial_honeytokens": 5,
+            "deploy_path": None
+        })
+    
     def is_registered(self) -> bool:
         """Check if agent is registered"""
         return bool(self.get_node_id() and self.get_node_api_key())
@@ -184,6 +192,51 @@ class AgentRegistration:
         
         except Exception as e:
             logger.warning(f"Heartbeat failed: {e}")
+            return False
+    
+    def register_deployed_decoys(self, node_id: str, node_api_key: str, decoys: list) -> bool:
+        """
+        Register deployed decoys with backend
+        
+        Args:
+            node_id: Node ID from config
+            node_api_key: Node API key from config
+            decoys: List of deployed decoy dicts with file_name, file_path, type
+        
+        Returns:
+            True if registration successful
+        """
+        try:
+            if not decoys:
+                logger.info("No decoys to register")
+                return True
+            
+            headers = {
+                "Content-Type": "application/json",
+                "X-Node-Id": node_id,
+                "X-Node-Key": node_api_key,
+            }
+            
+            url = f"{self.backend_url}/agent/register-decoys"
+            
+            logger.info(f"📤 Registering {len(decoys)} deployed decoys...")
+            response = requests.post(
+                url,
+                json=decoys,
+                headers=headers,
+                timeout=15
+            )
+            
+            if response.status_code in [200, 201]:
+                result = response.json()
+                logger.info(f"✓ Registered {result.get('registered', 0)} decoys with backend")
+                return True
+            else:
+                logger.warning(f"⚠️ Decoy registration returned: {response.status_code}")
+                return False
+        
+        except Exception as e:
+            logger.warning(f"Decoy registration failed: {e}")
             return False
 
 

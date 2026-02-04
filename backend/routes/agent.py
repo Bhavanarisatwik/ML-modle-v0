@@ -436,3 +436,66 @@ curl -I https://api.decoyverse.example.com/health
     except Exception as e:
         logger.error(f"Error downloading agent: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/agent/register-decoys")
+async def register_deployed_decoys(
+    decoys: list,
+    x_node_id: Optional[str] = Header(None),
+    x_node_key: Optional[str] = Header(None)
+):
+    """
+    Register deployed decoys from agent after initial deployment
+    
+    Headers:
+    - X-Node-Id: Node ID for authentication
+    - X-Node-Key: Node API key for authentication
+    
+    Body:
+    - List of deployed decoys with file_name, file_path, type
+    """
+    try:
+        logger.info(f"📥 Registering {len(decoys)} deployed decoys from node {x_node_id}")
+        
+        # Validate node access
+        node_id = x_node_id
+        if AUTH_ENABLED:
+            node = await validate_node_access(x_node_id, x_node_key)
+            node_id = node["node_id"]
+            
+            # Update last_seen
+            await db_service.update_node_last_seen(
+                node_id,
+                node_service.update_last_seen(node_id)
+            )
+        
+        # Save each decoy to database
+        saved_count = 0
+        for decoy in decoys:
+            decoy_data = {
+                "node_id": node_id,
+                "file_name": decoy.get("file_name", "unknown"),
+                "file_path": decoy.get("file_path", ""),
+                "type": decoy.get("type", "file"),
+                "status": "active",
+                "triggers_count": 0,
+                "created_at": datetime.utcnow().isoformat()
+            }
+            result = await db_service.save_deployed_decoy(decoy_data)
+            if result:
+                saved_count += 1
+        
+        logger.info(f"✓ Registered {saved_count}/{len(decoys)} decoys for node {node_id}")
+        
+        return {
+            "status": "success",
+            "registered": saved_count,
+            "total": len(decoys),
+            "node_id": node_id
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error registering decoys: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
