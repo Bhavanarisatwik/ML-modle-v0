@@ -60,6 +60,7 @@ class NodeResponse(BaseModel):
     last_seen: Optional[str] = None
     created_at: str
     os_type: Optional[str] = "windows"
+    ip_address: Optional[str] = None
     deployment_config: Optional[DeploymentConfig] = None
 
 

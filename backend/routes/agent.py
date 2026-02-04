@@ -3,7 +3,7 @@ Agent Routes
 Endpoints for endpoint agent events with node validation
 """
 
-from fastapi import APIRouter, HTTPException, Header
+from fastapi import APIRouter, HTTPException, Header, Request
 from fastapi.responses import FileResponse
 from datetime import datetime
 from typing import Optional
@@ -193,6 +193,7 @@ async def register_agent(
 
 @router.post("/agent/heartbeat")
 async def agent_heartbeat(
+    request: Request,
     x_node_api_key: Optional[str] = Header(None, alias="X-Node-API-Key"),
     x_node_id: Optional[str] = Header(None),
     x_node_key: Optional[str] = Header(None)
@@ -206,9 +207,17 @@ async def agent_heartbeat(
     - X-Node-Key: Node API key from config (deprecated)
     
     Updates node last_seen and status to 'active'
+    Also captures the client IP address on first connect
     """
     try:
         node_id = None
+        
+        # Get client IP address
+        client_ip = request.client.host if request.client else None
+        # Check for X-Forwarded-For (when behind proxy/load balancer)
+        forwarded_for = request.headers.get("X-Forwarded-For")
+        if forwarded_for:
+            client_ip = forwarded_for.split(",")[0].strip()
         
         # Try X-Node-API-Key first (new format)
         if x_node_api_key:
@@ -226,13 +235,14 @@ async def agent_heartbeat(
         else:
             raise HTTPException(status_code=401, detail="No credentials provided")
         
-        # Update node status to active and update last_seen
+        # Update node status to active and update last_seen + IP address
         await db_service.update_node_status(node_id, "active")
         await db_service.update_node(node_id, {
-            "last_seen": datetime.utcnow().isoformat()
+            "last_seen": datetime.utcnow().isoformat(),
+            "ip_address": client_ip
         })
         
-        logger.info(f"💓 Heartbeat from node: {node_id}")
+        logger.info(f"💓 Heartbeat from node: {node_id} (IP: {client_ip})")
         
         return {
             "status": "success",

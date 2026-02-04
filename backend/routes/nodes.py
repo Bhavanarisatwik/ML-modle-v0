@@ -212,9 +212,15 @@ async def download_agent(
     authorization: Optional[str] = Header(None)
 ):
     """
-    Download agent installer with embedded configuration
+    Download Windows PowerShell installer for the agent
     
-    Returns agent.exe with node_id and node_api_key embedded in config.json
+    Returns a PowerShell script (.ps1) that:
+    1. Creates C:\DecoyVerse directory
+    2. Downloads agent files from GitHub
+    3. Writes agent_config.json with credentials
+    4. Installs Python and dependencies
+    5. Deploys honeytokens/decoys
+    6. Runs the agent
     """
     try:
         user_id = get_user_id_from_header(authorization)
@@ -238,7 +244,7 @@ async def download_agent(
             "deploy_path": None
         })
         
-        # Create config with node_id and node_api_key
+        # Create config JSON
         config = {
             "node_id": node["node_id"],
             "node_api_key": node["node_api_key"],
@@ -248,15 +254,144 @@ async def download_agent(
             "ml_service_url": "https://ml-modle-v0-2.onrender.com",
             "deployment_config": deployment_config
         }
+        config_json = json.dumps(config, indent=2).replace("'", "''")  # Escape for PS
         
-        # For now, return config as JSON file
-        # In production, this would return a compiled agent.exe
-        config_json = json.dumps(config, indent=2)
+        # Generate PowerShell installer script
+        ps_script = f'''#Requires -RunAsAdministrator
+# ===============================================
+# DecoyVerse Agent Installer
+# Node: {node["name"]}
+# Node ID: {node["node_id"]}
+# Generated: {datetime.now().isoformat()}
+# ===============================================
+
+$ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"
+
+Write-Host ""
+Write-Host "===============================================" -ForegroundColor Cyan
+Write-Host "  DecoyVerse Agent Installer v2.0" -ForegroundColor Cyan
+Write-Host "  Node: {node["name"]}" -ForegroundColor Yellow
+Write-Host "===============================================" -ForegroundColor Cyan
+Write-Host ""
+
+# Configuration
+$InstallDir = "C:\\DecoyVerse"
+$GitHubRepo = "https://raw.githubusercontent.com/satwikShresth/ML-modle-v0/main"
+$AgentFiles = @("agent.py", "agent_setup.py", "agent_config.py")
+
+# Step 1: Create installation directory
+Write-Host "[1/6] Creating installation directory..." -ForegroundColor Green
+if (!(Test-Path $InstallDir)) {{
+    New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+}}
+Set-Location $InstallDir
+
+# Step 2: Check Python installation
+Write-Host "[2/6] Checking Python installation..." -ForegroundColor Green
+$pythonCmd = $null
+$pythonPaths = @(
+    "python",
+    "python3",
+    "C:\\Python311\\python.exe",
+    "C:\\Python310\\python.exe",
+    "C:\\Python39\\python.exe",
+    "$env:LOCALAPPDATA\\Programs\\Python\\Python311\\python.exe",
+    "$env:LOCALAPPDATA\\Programs\\Python\\Python310\\python.exe"
+)
+
+foreach ($path in $pythonPaths) {{
+    try {{
+        $version = & $path --version 2>&1
+        if ($version -match "Python 3") {{
+            $pythonCmd = $path
+            Write-Host "  Found Python: $version" -ForegroundColor Gray
+            break
+        }}
+    }} catch {{ }}
+}}
+
+if (!$pythonCmd) {{
+    Write-Host "  Python not found. Installing Python 3.11..." -ForegroundColor Yellow
+    
+    # Download Python installer
+    $pythonInstaller = "$InstallDir\\python-installer.exe"
+    Invoke-WebRequest -Uri "https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe" -OutFile $pythonInstaller
+    
+    # Install Python silently
+    Start-Process -Wait -FilePath $pythonInstaller -ArgumentList "/quiet", "InstallAllUsers=1", "PrependPath=1", "Include_pip=1"
+    Remove-Item $pythonInstaller -Force
+    
+    # Refresh PATH
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+    $pythonCmd = "python"
+    Write-Host "  Python installed successfully" -ForegroundColor Green
+}}
+
+# Step 3: Write agent configuration
+Write-Host "[3/6] Writing agent configuration..." -ForegroundColor Green
+$configContent = @'
+{config_json}
+'@
+[System.IO.File]::WriteAllText("$InstallDir\\agent_config.json", $configContent, [System.Text.UTF8Encoding]::new($false))
+Write-Host "  Config saved to $InstallDir\\agent_config.json" -ForegroundColor Gray
+
+# Step 4: Download agent files from GitHub
+Write-Host "[4/6] Downloading agent files..." -ForegroundColor Green
+foreach ($file in $AgentFiles) {{
+    $url = "$GitHubRepo/$file"
+    $dest = "$InstallDir\\$file"
+    try {{
+        Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing
+        Write-Host "  Downloaded: $file" -ForegroundColor Gray
+    }} catch {{
+        Write-Host "  Warning: Failed to download $file - $_" -ForegroundColor Yellow
+    }}
+}}
+
+# Step 5: Install Python dependencies
+Write-Host "[5/6] Installing Python dependencies..." -ForegroundColor Green
+try {{
+    & $pythonCmd -m pip install --quiet --upgrade pip 2>$null
+    & $pythonCmd -m pip install --quiet requests watchdog psutil 2>$null
+    Write-Host "  Dependencies installed" -ForegroundColor Gray
+}} catch {{
+    Write-Host "  Warning: Some dependencies may not have installed" -ForegroundColor Yellow
+}}
+
+# Step 6: Run the agent
+Write-Host "[6/6] Starting DecoyVerse agent..." -ForegroundColor Green
+Write-Host ""
+
+try {{
+    # Change to install directory and run agent
+    Set-Location $InstallDir
+    & $pythonCmd agent.py
+}} catch {{
+    Write-Host "Error running agent: $_" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "Manual start command:" -ForegroundColor Yellow
+    Write-Host "  cd $InstallDir" -ForegroundColor White
+    Write-Host "  $pythonCmd agent.py" -ForegroundColor White
+}}
+
+Write-Host ""
+Write-Host "===============================================" -ForegroundColor Cyan
+Write-Host "  Installation Complete!" -ForegroundColor Green
+Write-Host "  Agent installed at: $InstallDir" -ForegroundColor Gray
+Write-Host "===============================================" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "Press any key to exit..."
+$null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+'''
         
+        # Return PowerShell script
         return StreamingResponse(
-            io.BytesIO(config_json.encode()),
-            media_type="application/json",
-            headers={"Content-Disposition": f"attachment; filename=agent_config_{node_id}.json"}
+            io.BytesIO(ps_script.encode('utf-8-sig')),  # BOM for Windows PowerShell
+            media_type="application/octet-stream",
+            headers={
+                "Content-Disposition": f"attachment; filename=DecoyVerse-Setup-{node['name'].replace(' ', '_')}.ps1"
+            }
         )
     except HTTPException:
         raise

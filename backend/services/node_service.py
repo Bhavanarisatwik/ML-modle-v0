@@ -46,6 +46,7 @@ class NodeService:
             "name": name,
             "os_type": os_type or "windows",
             "status": "active",
+            "ip_address": None,  # Set when agent first connects
             "node_api_key": NodeService.generate_api_key(),
             "last_seen": None,
             "created_at": now,

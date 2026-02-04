@@ -91,7 +91,8 @@ class AuthService:
         payload = AuthService.verify_token(token)
         
         if payload:
-            return payload.get("sub")
+            # Support both 'sub' (standard) and 'userId' (Express backend)
+            return payload.get("sub") or payload.get("userId")
         
         return None
 

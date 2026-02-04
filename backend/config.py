@@ -53,14 +53,16 @@ API_VERSION = "2.0.0"
 API_DESCRIPTION = "Multi-node cyber deception security platform"
 
 # Authentication settings
-AUTH_ENABLED = os.getenv("AUTH_ENABLED", "False").lower() == "true"
+# IMPORTANT: Must be True for production to enable user-scoped data
+AUTH_ENABLED = os.getenv("AUTH_ENABLED", "True").lower() == "true"
 
 # JWT Secret Key - REQUIRED in production
-JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
+# Check both JWT_SECRET_KEY (FastAPI standard) and JWT_SECRET (Express standard)
+JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY") or os.getenv("JWT_SECRET")
 if not JWT_SECRET_KEY:
     if AUTH_ENABLED:
         raise ValueError(
-            "CRITICAL SECURITY ERROR: JWT_SECRET_KEY environment variable must be set when AUTH_ENABLED=True. "
+            "CRITICAL SECURITY ERROR: JWT_SECRET_KEY or JWT_SECRET environment variable must be set when AUTH_ENABLED=True. "
             "Generate a secure key with: python -c 'import secrets; print(secrets.token_urlsafe(32))'"
         )
     else:
