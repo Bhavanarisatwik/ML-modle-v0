@@ -263,9 +263,14 @@ async def download_agent(
         
         # Generate batch installer script
         bat_script = f'''@echo off
+setlocal EnableDelayedExpansion
 chcp 65001 >nul
 title DecoyVerse Agent Installer
 color 0B
+
+:: Store the script path before anything else
+set "SCRIPT_PATH=%~f0"
+set "SCRIPT_DIR=%~dp0"
 
 echo.
 echo ===============================================
@@ -278,9 +283,13 @@ echo.
 net session >nul 2>&1
 if %errorLevel% neq 0 (
     echo [!] Requesting Administrator privileges...
-    powershell -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
+    echo     Please click Yes on the UAC prompt...
+    powershell -Command "Start-Process cmd -ArgumentList '/c cd /d \"%SCRIPT_DIR%\" && \"%SCRIPT_PATH%\"' -Verb RunAs -Wait"
     exit /b
 )
+
+echo [!] Running with Administrator privileges
+echo.
 
 set "INSTALL_DIR=C:\\DecoyVerse"
 set "GITHUB_REPO=https://raw.githubusercontent.com/Bhavanarisatwik/ML-modle-v0/main"
