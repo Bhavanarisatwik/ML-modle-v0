@@ -66,7 +66,7 @@ class DatabaseService:
     async def create_user(self, user_data: Dict[str, Any]) -> Optional[str]:
         """Create new user"""
         try:
-            if not self.db:
+            if self.db is None:
                 logger.error("Database not connected")
                 return None
             result = await self.db[USERS_COLLECTION].insert_one(user_data)
@@ -79,7 +79,7 @@ class DatabaseService:
     async def get_user_by_email(self, email: str) -> Optional[Dict[str, Any]]:
         """Get user by email"""
         try:
-            if not self.db:
+            if self.db is None:
                 return None
             user = await self.db[USERS_COLLECTION].find_one({"email": email})
             return user
@@ -90,7 +90,7 @@ class DatabaseService:
     async def get_user_by_id(self, user_id: str) -> Optional[Dict[str, Any]]:
         """Get user by ID"""
         try:
-            if not self.db:
+            if self.db is None:
                 return None
             user = await self.db[USERS_COLLECTION].find_one({"id": user_id})
             return user
@@ -103,7 +103,7 @@ class DatabaseService:
     async def create_node(self, node_data: Dict[str, Any]) -> Optional[str]:
         """Create new node"""
         try:
-            if not self.db:
+            if self.db is None:
                 return None
             result = await self.db[NODES_COLLECTION].insert_one(node_data)
             logger.info(f"✓ Node created: {node_data['node_id']}")
@@ -115,7 +115,7 @@ class DatabaseService:
     async def get_nodes_by_user(self, user_id: str) -> List[Dict[str, Any]]:
         """Get all nodes for a user"""
         try:
-            if not self.db:
+            if self.db is None:
                 return []
             cursor = self.db[NODES_COLLECTION].find({"user_id": user_id})
             nodes = await cursor.to_list(length=1000)
@@ -131,7 +131,7 @@ class DatabaseService:
     async def get_node_by_id(self, node_id: str) -> Optional[Dict[str, Any]]:
         """Get node by ID"""
         try:
-            if not self.db:
+            if self.db is None:
                 return None
             node = await self.db[NODES_COLLECTION].find_one({"node_id": node_id})
             if node:
@@ -144,7 +144,7 @@ class DatabaseService:
     async def update_node_status(self, node_id: str, status: str) -> bool:
         """Update node status"""
         try:
-            if not self.db:
+            if self.db is None:
                 return False
             await self.db[NODES_COLLECTION].update_one(
                 {"node_id": node_id},
