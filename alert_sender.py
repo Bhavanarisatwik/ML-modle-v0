@@ -12,23 +12,26 @@ from datetime import datetime
 class AlertSender:
     """Send alerts to backend API"""
     
-    def __init__(self, api_url: str = "http://localhost:8000"):
+    def __init__(self, api_url: str = "https://ml-modle-v0-1.onrender.com"):
         """Initialize alert sender"""
-        self.api_url = api_url.rstrip('/')
-        self.alert_endpoint = f"{self.api_url}/predict"
+        # Remove /api suffix if present - we'll add endpoints ourselves
+        self.api_url = api_url.rstrip('/').replace('/api', '')
+        self.alert_endpoint = f"{self.api_url}/api/agent-alert"
         self.alerts_sent = 0
         self.alerts_failed = 0
     
     def check_api_health(self) -> bool:
         """Check if backend API is available"""
         try:
-            response = requests.get(f"{self.api_url}/health", timeout=2)
+            # Just check the root endpoint
+            response = requests.get(f"{self.api_url}/", timeout=5)
             if response.status_code == 200:
-                print(f"✓ Backend API is healthy")
+                print(f"✓ Backend API is healthy at {self.api_url}")
                 return True
-        except requests.exceptions.RequestException:
-            print(f"✗ Backend API not responding at {self.api_url}")
+        except requests.exceptions.RequestException as e:
+            print(f"✗ Backend API not responding at {self.api_url}: {e}")
             return False
+        return False
     
     def alert_to_log_format(self, alert: Dict[str, Any]) -> Dict[str, int]:
         """
