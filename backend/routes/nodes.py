@@ -4,7 +4,7 @@ CRUD operations for nodes
 """
 
 from fastapi import APIRouter, HTTPException, Header
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse, StreamingResponse
 from typing import List, Optional
 from datetime import datetime
 import logging
@@ -235,10 +235,10 @@ async def download_agent(
         # In production, this would return a compiled agent.exe
         config_json = json.dumps(config, indent=2)
         
-        return FileResponse(
+        return StreamingResponse(
             io.BytesIO(config_json.encode()),
             media_type="application/json",
-            filename=f"agent_config_{node_id}.json"
+            headers={"Content-Disposition": f"attachment; filename=agent_config_{node_id}.json"}
         )
     except HTTPException:
         raise
