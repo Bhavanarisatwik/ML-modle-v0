@@ -78,7 +78,7 @@ async def receive_honeypot_log(
         
         # Step 4: Create alert if high risk
         alert_created = False
-        if ml_prediction and ml_prediction.risk_score > ALERT_RISK_THRESHOLD:
+        if ml_prediction and ml_prediction.risk_score >= ALERT_RISK_THRESHOLD:
             alert = Alert(
                 alert_id=f"ALERT-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}-{log.source_ip[:8]}",
                 timestamp=log.timestamp,
