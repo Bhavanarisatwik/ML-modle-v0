@@ -278,16 +278,16 @@ echo.
 :: Check for admin rights
 net session >nul 2>&1
 if %errorLevel% neq 0 (
-    echo [!] Requesting Administrator privileges...
-    echo     Please click Yes on the UAC prompt...
-    echo Set UAC = CreateObject^("Shell.Application"^) > "%temp%\\elevate.vbs"
-    echo UAC.ShellExecute "%~f0", "", "", "runas", 1 >> "%temp%\\elevate.vbs"
-    "%temp%\\elevate.vbs"
-    del "%temp%\\elevate.vbs"
-    exit /b
+    echo [!] ERROR: Administrator privileges required!
+    echo.
+    echo     Please right-click this file and select
+    echo     "Run as administrator"
+    echo.
+    pause
+    exit /b 1
 )
 
-echo [!] Running with Administrator privileges
+echo [OK] Running with Administrator privileges
 echo.
 
 set "INSTALL_DIR=C:\\DecoyVerse"
