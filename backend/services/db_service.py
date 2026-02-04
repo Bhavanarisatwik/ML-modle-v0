@@ -141,6 +141,19 @@ class DatabaseService:
             logger.error(f"Error getting node: {e}")
             return None
     
+    async def get_node_by_api_key(self, api_key: str) -> Optional[Dict[str, Any]]:
+        """Get node by API key"""
+        try:
+            if self.db is None:
+                return None
+            node = await self.db[NODES_COLLECTION].find_one({"node_api_key": api_key})
+            if node:
+                node["_id"] = str(node["_id"])
+            return node
+        except Exception as e:
+            logger.error(f"Error getting node by API key: {e}")
+            return None
+    
     async def update_node_status(self, node_id: str, status: str) -> bool:
         """Update node status"""
         try:

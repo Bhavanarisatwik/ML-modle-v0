@@ -155,12 +155,41 @@ class HoneytokenHandler(FileSystemEventHandler):
         except Exception as e:
             print(f"[ERROR] Failed to report: {e}")
 
+def send_heartbeat():
+    """Send heartbeat to backend to indicate agent is online"""
+    try:
+        headers = {
+            "Content-Type": "application/json",
+            "X-Node-API-Key": NODE_API_KEY
+        }
+        payload = {
+            "hostname": socket.gethostname(),
+            "os": "Windows",
+            "version": "1.0.0",
+            "status": "active"
+        }
+        response = requests.post(
+            f"{BACKEND_URL}/agent/heartbeat",
+            json=payload,
+            headers=headers,
+            timeout=10
+        )
+        if response.status_code == 200:
+            print(f"[HEARTBEAT] Sent successfully")
+        else:
+            print(f"[HEARTBEAT] Failed: {response.status_code}")
+    except Exception as e:
+        print(f"[HEARTBEAT] Error: {e}")
+
 def main():
     print("=" * 50)
     print("DecoyVerse Agent Started")
     print(f"Backend: {BACKEND_URL}")
     print(f"Monitoring: {MONITOR_PATHS}")
     print("=" * 50)
+    
+    # Send initial heartbeat
+    send_heartbeat()
     
     handler = HoneytokenHandler()
     observer = Observer()
@@ -174,9 +203,15 @@ def main():
     
     observer.start()
     
+    heartbeat_counter = 0
     try:
         while True:
             time.sleep(CHECK_INTERVAL)
+            heartbeat_counter += 1
+            # Send heartbeat every 30 seconds (6 x 5 second intervals)
+            if heartbeat_counter >= 6:
+                send_heartbeat()
+                heartbeat_counter = 0
     except KeyboardInterrupt:
         observer.stop()
     

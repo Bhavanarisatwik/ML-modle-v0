@@ -193,9 +193,7 @@ async def register_agent(
 
 @router.post("/agent/heartbeat")
 async def agent_heartbeat(
-    node_id: str,
-    hostname: str,
-    os: str,
+    x_node_api_key: Optional[str] = Header(None, alias="X-Node-API-Key"),
     x_node_id: Optional[str] = Header(None),
     x_node_key: Optional[str] = Header(None)
 ):
@@ -203,28 +201,43 @@ async def agent_heartbeat(
     Agent heartbeat (keep-alive ping)
     
     Headers:
-    - X-Node-Id: Node ID from config
-    - X-Node-Key: Node API key from config
+    - X-Node-API-Key: Node API key from config (preferred)
+    - X-Node-Id: Node ID from config (deprecated)
+    - X-Node-Key: Node API key from config (deprecated)
     
-    Updates node last_seen and status
+    Updates node last_seen and status to 'active'
     """
     try:
-        if AUTH_ENABLED:
+        node_id = None
+        
+        # Try X-Node-API-Key first (new format)
+        if x_node_api_key:
+            node = await db_service.get_node_by_api_key(x_node_api_key)
+            if node:
+                node_id = node["node_id"]
+            else:
+                raise HTTPException(status_code=401, detail="Invalid API key")
+        elif AUTH_ENABLED:
             try:
                 node = await validate_node_access(x_node_id, x_node_key)
                 node_id = node["node_id"]
             except HTTPException:
                 raise HTTPException(status_code=401, detail="Invalid node credentials")
+        else:
+            raise HTTPException(status_code=401, detail="No credentials provided")
         
-        # Update node last_seen
+        # Update node status to active and update last_seen
+        await db_service.update_node_status(node_id, "active")
         await db_service.update_node(node_id, {
-            "last_seen": datetime.utcnow().isoformat(),
-            "agent_status": "online"
+            "last_seen": datetime.utcnow().isoformat()
         })
+        
+        logger.info(f"💓 Heartbeat from node: {node_id}")
         
         return {
             "status": "success",
-            "message": "Heartbeat received"
+            "message": "Heartbeat received",
+            "node_id": node_id
         }
     
     except HTTPException:
