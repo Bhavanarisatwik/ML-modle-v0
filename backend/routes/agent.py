@@ -3,10 +3,14 @@ Agent Routes
 Endpoints for endpoint agent events with node validation
 """
 
-from fastapi import APIRouter, HTTPException, Header
+from fastapi import APIRouter, HTTPException, Header, FileResponse
 from datetime import datetime
 from typing import Optional
 import logging
+import json
+import zipfile
+import io
+from pathlib import Path
 
 from models.log_models import AgentEvent, Alert
 from services.db_service import db_service
@@ -226,4 +230,195 @@ async def agent_heartbeat(
         raise
     except Exception as e:
         logger.error(f"Error processing heartbeat: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/agent/download/{node_id}")
+async def download_agent(
+    node_id: str,
+    authorization: Optional[str] = Header(None)
+):
+    """
+    Download agent configuration and executable
+    
+    Generates config.json with node_id and node_api_key
+    Returns ZIP with agent executable + config
+    
+    Flow:
+    1. Verify node exists
+    2. Generate config.json with credentials
+    3. Create ZIP with executable + config
+    4. Return as file download
+    """
+    try:
+        # Verify node exists
+        node = await db_service.get_node_by_id(node_id)
+        if not node:
+            raise HTTPException(status_code=404, detail="Node not found")
+        
+        logger.info(f"📥 Agent download requested: {node_id}")
+        
+        # Generate config.json
+        config = {
+            "node_id": node.get("node_id"),
+            "node_api_key": node.get("node_api_key"),
+            "backend_url": "https://api.decoyverse.example.com",
+            "version": "2.0.0",
+            "endpoints": {
+                "agent_alert": "/api/agent-alert",
+                "register": "/api/agent/register",
+                "heartbeat": "/api/agent/heartbeat"
+            }
+        }
+        
+        # Create in-memory ZIP
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+            # Add config.json
+            config_json = json.dumps(config, indent=2)
+            zip_file.writestr("config.json", config_json)
+            
+            # Add placeholder agent stub (in production would be real executable)
+            agent_stub = f"""#!/usr/bin/env python3
+# DecoyVerse Agent v2.0.0
+# Node: {node_id}
+# Auto-generated configuration
+
+import json
+import requests
+import platform
+import socket
+from datetime import datetime
+
+CONFIG = {json.dumps(config, indent=4)}
+
+def register():
+    '''Register agent with backend'''
+    try:
+        response = requests.post(
+            f"{{CONFIG['backend_url']}}{{CONFIG['endpoints']['register']}}",
+            headers={{
+                "X-Node-Id": CONFIG["node_id"],
+                "X-Node-Key": CONFIG["node_api_key"]
+            }},
+            json={{
+                "node_id": CONFIG["node_id"],
+                "hostname": socket.gethostname(),
+                "os": platform.system()
+            }},
+            timeout=10
+        )
+        print(f"Registration response: {{response.status_code}}")
+        return response.json()
+    except Exception as e:
+        print(f"Registration failed: {{e}}")
+        return None
+
+if __name__ == "__main__":
+    print(f"DecoyVerse Agent v2.0.0")
+    print(f"Node ID: {{CONFIG['node_id']}}")
+    print(f"Starting registration...")
+    result = register()
+    if result:
+        print(f"✓ Agent registered successfully")
+    else:
+        print(f"✗ Agent registration failed")
+"""
+            zip_file.writestr("agent.py", agent_stub)
+            
+            # Add setup/installation script
+            setup_script = f"""#!/bin/bash
+# DecoyVerse Agent Setup Script
+# Installation and configuration for node: {node_id}
+
+echo "DecoyVerse Agent Installation"
+echo "Node ID: {node_id}"
+echo "================================"
+
+# Check Python
+if ! command -v python3 &> /dev/null; then
+    echo "Error: Python 3 is required"
+    exit 1
+fi
+
+# Install requirements
+pip3 install requests
+
+# Make agent executable
+chmod +x agent.py
+
+# Run agent
+echo "Starting agent..."
+python3 agent.py
+
+# For systemd service (optional)
+# sudo cp agent.service /etc/systemd/system/
+# sudo systemctl daemon-reload
+# sudo systemctl enable decoyverse-agent
+# sudo systemctl start decoyverse-agent
+"""
+            zip_file.writestr("setup.sh", setup_script)
+            
+            # Add README
+            readme = f"""# DecoyVerse Agent v2.0.0
+
+Node Configuration:
+- Node ID: {node.get("node_id")}
+- API Key: {node.get("node_api_key")}
+- Status: {node.get("status")}
+- Created: {node.get("created_at")}
+
+## Installation
+
+### Linux/macOS
+```bash
+bash setup.sh
+```
+
+### Windows
+```cmd
+python agent.py
+```
+
+## Configuration
+
+The agent will automatically use the config.json file for:
+- Node authentication
+- Backend connection
+- Event reporting
+
+## Features
+
+- Honeytoken monitoring
+- File integrity monitoring
+- Network activity logging
+- Automatic threat reporting
+- Keep-alive heartbeat
+
+## Troubleshooting
+
+Check logs:
+```bash
+cat agent.log
+```
+
+Verify connectivity:
+```bash
+curl -I https://api.decoyverse.example.com/health
+```
+"""
+            zip_file.writestr("README.md", readme)
+        
+        # Return ZIP file
+        zip_buffer.seek(0)
+        return FileResponse(
+            iter([zip_buffer.getvalue()]),
+            media_type="application/zip",
+            headers={"Content-Disposition": f"attachment; filename=decoyverse-agent-{node_id}.zip"}
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error downloading agent: {e}")
         raise HTTPException(status_code=500, detail=str(e))

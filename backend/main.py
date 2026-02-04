@@ -13,7 +13,7 @@ from config import (
     API_TITLE, API_VERSION, API_DESCRIPTION, CORS_ORIGINS,
     AUTH_ENABLED, BACKEND_HOST, BACKEND_PORT
 )
-from routes import auth_router, nodes_router, honeypot_router, agent_router, alerts_router
+from routes import auth_router, nodes_router, honeypot_router, agent_router, alerts_router, decoys_router, honeytokels_router, logs_router, ai_insights_router
 from services.db_service import db_service
 from services.db_indexes import create_indexes
 
@@ -65,6 +65,10 @@ app.include_router(nodes_router)
 app.include_router(honeypot_router)
 app.include_router(agent_router)
 app.include_router(alerts_router)
+app.include_router(decoys_router)
+app.include_router(honeytokels_router)
+app.include_router(logs_router)
+app.include_router(ai_insights_router)
 
 
 # Root endpoint
@@ -89,21 +93,61 @@ async def root():
                 "GET /nodes - List nodes",
                 "PATCH /nodes/{id} - Update node status",
                 "DELETE /nodes/{id} - Delete node",
-                "GET /nodes/{id}/decoys - Get node decoys"
+                "GET /agent/download/{node_id} - Download agent config"
+            ]
+        },
+        "alerts": {
+            "endpoints": [
+                "GET /api/alerts - Get alerts (with severity/status filters)",
+                "PATCH /api/alerts/{id} - Update alert status"
+            ]
+        },
+        "decoys": {
+            "endpoints": [
+                "GET /api/decoys - Get all decoys",
+                "GET /api/decoys/node/{node_id} - Get node decoys",
+                "PATCH /api/decoys/{id} - Update decoy status",
+                "DELETE /api/decoys/{id} - Delete decoy"
+            ]
+        },
+        "honeytokels": {
+            "endpoints": [
+                "GET /api/honeytokels - Get all honeytokels",
+                "GET /api/honeytokels/node/{node_id} - Get node honeytokels",
+                "PATCH /api/honeytokels/{id} - Update honeytoken status",
+                "DELETE /api/honeytokels/{id} - Delete honeytoken"
+            ]
+        },
+        "logs": {
+            "endpoints": [
+                "GET /api/logs - Get event logs (with node_id/severity/search filters)",
+                "GET /api/logs/node/{node_id} - Get node logs"
+            ]
+        },
+        "ai_insights": {
+            "endpoints": [
+                "GET /api/ai/insights - Get AI threat analysis",
+                "GET /api/ai/attacker-profile/{ip} - Get attacker profile"
+            ]
+        },
+        "agent": {
+            "endpoints": [
+                "POST /api/agent-alert - Submit agent alert (node auth required)",
+                "POST /api/agent/register - Register agent",
+                "POST /api/agent/heartbeat - Agent heartbeat",
+                "GET /api/agent/download/{node_id} - Download agent package"
             ]
         },
         "log_ingestion": {
             "endpoints": [
-                "POST /api/honeypot-log - Honeypot logs",
-                "POST /api/agent-alert - Agent events"
+                "POST /api/honeypot-log - Honeypot logs (node auth required)",
+                "POST /api/agent-alert - Agent events (node auth required)"
             ]
         },
         "dashboard": {
             "endpoints": [
                 "GET /api/stats - Dashboard stats",
                 "GET /api/recent-attacks - Recent attacks",
-                "GET /api/alerts - All alerts",
-                "GET /api/attacker-profile/{ip} - Attacker profile",
                 "GET /api/health - Health check"
             ]
         }

@@ -251,6 +251,199 @@ class DatabaseService:
             logger.error(f"Error getting recent alerts: {e}")
             return []
     
+    
+    async def update_decoy_status(self, decoy_id: str, status: str) -> bool:
+        """Update decoy status"""
+        try:
+            from bson import ObjectId
+            result = await self.db[DECOYS_COLLECTION].update_one(
+                {"_id": ObjectId(decoy_id)},
+                {"$set": {"status": status}}
+            )
+            return result.modified_count > 0
+        except Exception as e:
+            logger.error(f"Error updating decoy status: {e}")
+            return False
+    
+    async def delete_decoy(self, decoy_id: str) -> bool:
+        """Delete decoy"""
+        try:
+            from bson import ObjectId
+            result = await self.db[DECOYS_COLLECTION].delete_one({"_id": ObjectId(decoy_id)})
+            return result.deleted_count > 0
+        except Exception as e:
+            logger.error(f"Error deleting decoy: {e}")
+            return False
+    
+    async def get_user_decoys(self, node_ids: List[str], limit: int = 50) -> List[Dict]:
+        """Get all decoys for user's nodes"""
+        try:
+            cursor = self.db[DECOYS_COLLECTION].find({"node_id": {"$in": node_ids}}).limit(limit)
+            decoys = await cursor.to_list(length=limit)
+            
+            for decoy in decoys:
+                decoy["_id"] = str(decoy["_id"])
+            
+            return decoys
+        except Exception as e:
+            logger.error(f"Error getting user decoys: {e}")
+            return []
+    
+    async def get_user_honeytokels(self, node_ids: List[str], limit: int = 50) -> List[Dict]:
+        """Get all honeytokels (type='honeytoken') for user's nodes"""
+        try:
+            cursor = self.db[DECOYS_COLLECTION].find({
+                "node_id": {"$in": node_ids},
+                "type": "honeytoken"
+            }).limit(limit)
+            honeytokels = await cursor.to_list(length=limit)
+            
+            for token in honeytokels:
+                token["_id"] = str(token["_id"])
+            
+            return honeytokels
+        except Exception as e:
+            logger.error(f"Error getting user honeytokels: {e}")
+            return []
+    
+    async def get_node_honeytokels(self, node_id: str) -> List[Dict]:
+        """Get all honeytokels for a node"""
+        try:
+            cursor = self.db[DECOYS_COLLECTION].find({
+                "node_id": node_id,
+                "type": "honeytoken"
+            })
+            honeytokels = await cursor.to_list(length=1000)
+            
+            for token in honeytokels:
+                token["_id"] = str(token["_id"])
+            
+            return honeytokels
+        except Exception as e:
+            logger.error(f"Error getting node honeytokels: {e}")
+            return []
+    
+    async def update_honeytoken_status(self, honeytoken_id: str, status: str) -> bool:
+        """Update honeytoken status"""
+        try:
+            from bson import ObjectId
+            result = await self.db[DECOYS_COLLECTION].update_one(
+                {"_id": ObjectId(honeytoken_id)},
+                {"$set": {"status": status}}
+            )
+            return result.modified_count > 0
+        except Exception as e:
+            logger.error(f"Error updating honeytoken status: {e}")
+            return False
+    
+    async def delete_honeytoken(self, honeytoken_id: str) -> bool:
+        """Delete honeytoken"""
+        try:
+            from bson import ObjectId
+            result = await self.db[DECOYS_COLLECTION].delete_one({"_id": ObjectId(honeytoken_id)})
+            return result.deleted_count > 0
+        except Exception as e:
+            logger.error(f"Error deleting honeytoken: {e}")
+            return False
+    
+    async def get_user_events(self, node_ids: List[str], limit: int = 100) -> List[Dict]:
+        """Get all events (honeypot logs + agent events) for user's nodes"""
+        try:
+            # Get honeypot logs
+            honeypot_cursor = self.db[HONEYPOT_LOGS_COLLECTION].find({
+                "node_id": {"$in": node_ids}
+            }).sort("timestamp", -1).limit(limit)
+            honeypot_logs = await honeypot_cursor.to_list(length=limit)
+            
+            # Get agent events
+            agent_cursor = self.db[AGENT_EVENTS_COLLECTION].find({
+                "node_id": {"$in": node_ids}
+            }).sort("timestamp", -1).limit(limit)
+            agent_events = await agent_cursor.to_list(length=limit)
+            
+            # Combine and sort by timestamp
+            all_events = honeypot_logs + agent_events
+            all_events.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+            
+            for event in all_events:
+                event["_id"] = str(event["_id"])
+            
+            return all_events[:limit]
+        except Exception as e:
+            logger.error(f"Error getting user events: {e}")
+            return []
+    
+    async def get_node_events(self, node_id: str, limit: int = 100) -> List[Dict]:
+        """Get all events for a specific node"""
+        try:
+            # Get honeypot logs
+            honeypot_cursor = self.db[HONEYPOT_LOGS_COLLECTION].find({
+                "node_id": node_id
+            }).sort("timestamp", -1).limit(limit)
+            honeypot_logs = await honeypot_cursor.to_list(length=limit)
+            
+            # Get agent events
+            agent_cursor = self.db[AGENT_EVENTS_COLLECTION].find({
+                "node_id": node_id
+            }).sort("timestamp", -1).limit(limit)
+            agent_events = await agent_cursor.to_list(length=limit)
+            
+            # Combine and sort
+            all_events = honeypot_logs + agent_events
+            all_events.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+            
+            for event in all_events:
+                event["_id"] = str(event["_id"])
+            
+            return all_events[:limit]
+        except Exception as e:
+            logger.error(f"Error getting node events: {e}")
+            return []
+    
+    async def get_top_attacker_profiles(self, limit: int = 10) -> List[Dict]:
+        """Get top attacker profiles by activity count"""
+        try:
+            cursor = self.db[ATTACKER_PROFILES_COLLECTION].find({}).sort("total_attacks", -1).limit(limit)
+            profiles = await cursor.to_list(length=limit)
+            
+            for profile in profiles:
+                profile["_id"] = str(profile["_id"])
+            
+            return profiles
+        except Exception as e:
+            logger.error(f"Error getting top attacker profiles: {e}")
+            return []
+    
+    async def detect_scanner_bots(self, limit: int = 10) -> List[Dict]:
+        """Detect scanner bots (high port_scan activity)"""
+        try:
+            # Find IPs with high port_scan activity
+            cursor = self.db[ATTACKER_PROFILES_COLLECTION].find({
+                "attack_types.port_scan": {"$exists": True, "$gt": 5}
+            }).sort("total_attacks", -1).limit(limit)
+            
+            scanners = await cursor.to_list(length=limit)
+            
+            for scanner in scanners:
+                scanner["_id"] = str(scanner["_id"])
+            
+            return scanners
+        except Exception as e:
+            logger.error(f"Error detecting scanner bots: {e}")
+            return []
+    
+    async def update_node(self, node_id: str, updates: Dict[str, Any]) -> bool:
+        """Update node with multiple fields"""
+        try:
+            result = await self.db[NODES_COLLECTION].update_one(
+                {"node_id": node_id},
+                {"$set": updates}
+            )
+            return result.modified_count > 0
+        except Exception as e:
+            logger.error(f"Error updating node: {e}")
+            return False
+    
     # ==================== ATTACKER PROFILE OPERATIONS ====================
     
     async def update_attacker_profile(self, source_ip: str, attack_type: str, risk_score: int, service: str):

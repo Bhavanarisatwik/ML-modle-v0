@@ -67,12 +67,19 @@ async def get_recent_attacks(
 @router.get("/alerts", response_model=List[Alert])
 async def get_all_alerts(
     limit: int = 50,
+    severity: Optional[str] = None,
+    status: Optional[str] = None,
     authorization: Optional[str] = Header(None)
 ):
     """
-    Get all alerts for user
+    Get all alerts for user with optional filters
     
-    Returns user-scoped full alert list
+    Query params:
+    - severity: critical, high, medium, low
+    - status: open, investigating, resolved
+    - limit: max results (default 50)
+    
+    Returns user-scoped filtered alert list
     """
     try:
         user_id = get_user_id_from_header(authorization)
@@ -80,9 +87,43 @@ async def get_all_alerts(
         # Get all alerts
         alerts = await db_service.get_recent_alerts(limit=limit, user_id=user_id)
         
+        # Apply filters
+        if severity:
+            alerts = [a for a in alerts if a.get("severity") == severity]
+        if status:
+            alerts = [a for a in alerts if a.get("status") == status]
+        
         return [Alert(**alert) for alert in alerts]
     except Exception as e:
         logger.error(f"Error getting alerts: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.patch("/alerts/{alert_id}")
+async def update_alert_status(
+    alert_id: str,
+    status: str,
+    authorization: Optional[str] = Header(None)
+):
+    """
+    Update alert status
+    
+    Body: { "status": "resolved" | "investigating" | "open" }
+    """
+    try:
+        if status not in ["open", "investigating", "resolved"]:
+            raise HTTPException(status_code=400, detail="Invalid status")
+        
+        result = await db_service.update_alert_status(alert_id, status)
+        
+        if not result:
+            raise HTTPException(status_code=404, detail="Alert not found")
+        
+        return {"success": True, "alert_id": alert_id, "new_status": status}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating alert: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
