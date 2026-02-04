@@ -37,8 +37,15 @@ ALERT_RISK_THRESHOLD = int(os.getenv("ALERT_RISK_THRESHOLD", "7"))
 BACKEND_HOST = "0.0.0.0"
 BACKEND_PORT = int(os.getenv("PORT", 8001))
 
-# CORS settings
-CORS_ORIGINS = ["*"]  # Allow all origins for demo
+# CORS settings - Explicit origins required when using credentials
+CORS_ORIGINS = [
+    "https://decoy-verse-v2.vercel.app",      # Production frontend
+    "https://decoyverse.vercel.app",           # Alternate production
+    "http://localhost:5173",                   # Vite dev server
+    "http://localhost:3000",                   # React dev server
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:3000",
+]
 
 # API settings
 API_TITLE = "Decoyvers Backend API"
