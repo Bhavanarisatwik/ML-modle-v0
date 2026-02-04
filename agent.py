@@ -9,6 +9,7 @@ import time
 from agent_setup import HoneytokenSetup
 from file_monitor import FileMonitor
 from alert_sender import AlertSender
+from agent_config import AgentConfig, AgentRegistration, ensure_agent_registered
 
 
 class DeceptionAgent:
@@ -17,6 +18,7 @@ class DeceptionAgent:
     def __init__(self, watch_dir: str = "system_cache"):
         """Initialize the deception agent"""
         self.watch_dir = watch_dir
+        self.config = AgentConfig()
         self.setup = HoneytokenSetup(watch_dir)
         self.monitor = FileMonitor(watch_dir)
         self.sender = AlertSender()
@@ -80,6 +82,11 @@ class DeceptionAgent:
             check_backend: Whether to check backend before running
         """
         
+        # Phase 0: Register with backend (if not already registered)
+        if not ensure_agent_registered(self.config):
+            print("\n✗ Agent startup failed - not registered")
+            return False
+        
         # Phase 1: Deploy honeytokens
         if not self.setup_honeytokens():
             print("\n✗ Agent startup failed")
@@ -98,6 +105,7 @@ class DeceptionAgent:
         print("⚡ PHASE 4: CONTINUOUS MONITORING")
         print("="*70)
         print(f"\n🟢 AGENT ACTIVE")
+        print(f"   Node ID: {self.config.get_node_id()}")
         print(f"   Honeytokens: {len(self.setup.honeytokens)} files deployed")
         print(f"   Monitoring: {self.watch_dir}")
         print(f"   Check interval: {interval} seconds")

@@ -127,3 +127,103 @@ async def receive_agent_event(
     except Exception as e:
         logger.error(f"Error processing agent event: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/agent/register")
+async def register_agent(
+    node_id: str,
+    hostname: str,
+    os: str,
+    x_node_id: Optional[str] = Header(None),
+    x_node_key: Optional[str] = Header(None)
+):
+    """
+    Register agent with backend (first-time agent startup)
+    
+    Headers:
+    - X-Node-Id: Node ID from config
+    - X-Node-Key: Node API key from config
+    
+    Flow:
+    1. Validate node_id and API key from headers
+    2. Update node status to "online"
+    3. Record registration timestamp
+    4. Return registration confirmation
+    """
+    try:
+        logger.info(f"📝 Agent registration: {node_id} ({hostname})")
+        
+        if AUTH_ENABLED:
+            # Validate node_id and API key
+            try:
+                node = await validate_node_access(x_node_id, x_node_key)
+                node_id = node["node_id"]
+            except HTTPException:
+                raise HTTPException(status_code=401, detail="Invalid node credentials")
+        
+        # Update node status
+        await db_service.update_node_status(node_id, "online")
+        
+        # Record agent properties
+        await db_service.update_node(node_id, {
+            "last_seen": datetime.utcnow().isoformat(),
+            "agent_status": "registered",
+            "hostname": hostname,
+            "os": os
+        })
+        
+        logger.info(f"✓ Agent registered: {node_id}")
+        
+        return {
+            "status": "success",
+            "node_id": node_id,
+            "message": f"Agent registered successfully"
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error registering agent: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/agent/heartbeat")
+async def agent_heartbeat(
+    node_id: str,
+    hostname: str,
+    os: str,
+    x_node_id: Optional[str] = Header(None),
+    x_node_key: Optional[str] = Header(None)
+):
+    """
+    Agent heartbeat (keep-alive ping)
+    
+    Headers:
+    - X-Node-Id: Node ID from config
+    - X-Node-Key: Node API key from config
+    
+    Updates node last_seen and status
+    """
+    try:
+        if AUTH_ENABLED:
+            try:
+                node = await validate_node_access(x_node_id, x_node_key)
+                node_id = node["node_id"]
+            except HTTPException:
+                raise HTTPException(status_code=401, detail="Invalid node credentials")
+        
+        # Update node last_seen
+        await db_service.update_node(node_id, {
+            "last_seen": datetime.utcnow().isoformat(),
+            "agent_status": "online"
+        })
+        
+        return {
+            "status": "success",
+            "message": "Heartbeat received"
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error processing heartbeat: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

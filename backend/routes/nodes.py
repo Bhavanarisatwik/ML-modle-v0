@@ -3,10 +3,13 @@ Node Management Routes
 CRUD operations for nodes
 """
 
-from fastapi import APIRouter, HTTPException, Header
+from fastapi import APIRouter, HTTPException, Header, FileResponse
 from typing import List, Optional
 from datetime import datetime
 import logging
+import json
+import io
+from pathlib import Path
 
 from models.log_models import NodeCreate, NodeResponse, NodeCreateResponse, NodeUpdate, DecoyResponse
 from services.db_service import db_service
@@ -190,4 +193,82 @@ async def get_node_decoys(
         raise
     except Exception as e:
         logger.error(f"Error getting decoys: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/{node_id}/agent-download")
+async def download_agent(
+    node_id: str,
+    authorization: Optional[str] = Header(None)
+):
+    """
+    Download agent installer with embedded configuration
+    
+    Returns agent.exe with node_id and node_api_key embedded in config.json
+    """
+    try:
+        user_id = get_user_id_from_header(authorization)
+        
+        if not user_id and AUTH_ENABLED:
+            raise HTTPException(status_code=401, detail="Unauthorized")
+        
+        # Get node
+        node = await db_service.get_node_by_id(node_id)
+        if not node:
+            raise HTTPException(status_code=404, detail="Node not found")
+        
+        # Verify ownership
+        if AUTH_ENABLED and node["user_id"] != user_id:
+            raise HTTPException(status_code=403, detail="Permission denied")
+        
+        # Create config with node_id and node_api_key
+        config = {
+            "node_id": node["node_id"],
+            "node_api_key": node["node_api_key"],
+            "node_name": node["name"],
+            "backend_url": "https://ml-modle-v0-1.onrender.com/api",
+            "ml_service_url": "https://ml-modle-v0-2.onrender.com"
+        }
+        
+        # For now, return config as JSON file
+        # In production, this would return a compiled agent.exe
+        config_json = json.dumps(config, indent=2)
+        
+        return FileResponse(
+            io.BytesIO(config_json.encode()),
+            media_type="application/json",
+            filename=f"agent_config_{node_id}.json"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error downloading agent: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/stats")
+async def get_node_stats(authorization: Optional[str] = Header(None)):
+    """
+    Get node statistics (total, online, offline)
+    
+    Returns aggregated node status for user
+    """
+    try:
+        user_id = get_user_id_from_header(authorization)
+        
+        if not user_id and AUTH_ENABLED:
+            raise HTTPException(status_code=401, detail="Unauthorized")
+        
+        # Get all user nodes
+        nodes = await db_service.get_nodes_by_user(user_id)
+        
+        total = len(nodes)
+        online = sum(1 for node in nodes if node.get("status") == "online")
+        offline = total - online
+        
+        return {
+            "total": total,
+            "online": online,
+            "offline": offline
+        }
+    except Exception as e:
+        logger.error(f"Error getting node stats: {e}")
         raise HTTPException(status_code=500, detail=str(e))
