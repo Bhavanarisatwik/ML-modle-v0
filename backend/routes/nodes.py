@@ -261,139 +261,180 @@ async def download_agent(
         }
         config_json = json.dumps(config, indent=2)
         
-        # Generate batch installer script
-        bat_script = f'''@echo off
-setlocal EnableDelayedExpansion
-chcp 65001 >nul
-title DecoyVerse Agent Installer
-color 0B
+        # Generate PowerShell installer script (more reliable than batch)
+        ps_script = f'''
+# DecoyVerse Agent Installer v2.0
+# Node: {node["name"]}
 
-echo.
-echo ===============================================
-echo   DecoyVerse Agent Installer v2.0
-echo   Node: {node["name"]}
-echo ===============================================
-echo.
+$ErrorActionPreference = "Stop"
+$Host.UI.RawUI.WindowTitle = "DecoyVerse Agent Installer"
 
-:: Check for admin rights
-net session >nul 2>&1
-if %errorLevel% neq 0 (
-    echo [!] ERROR: Administrator privileges required!
-    echo.
-    echo     Please right-click this file and select
-    echo     "Run as administrator"
-    echo.
-    pause
-    exit /b 1
-)
+function Write-Step($step, $msg) {{
+    Write-Host "[$step] " -NoNewline -ForegroundColor Cyan
+    Write-Host $msg
+}}
 
-echo [OK] Running with Administrator privileges
-echo.
+function Write-Success($msg) {{
+    Write-Host "  [OK] " -NoNewline -ForegroundColor Green
+    Write-Host $msg
+}}
 
-set "INSTALL_DIR=C:\\DecoyVerse"
-set "GITHUB_REPO=https://raw.githubusercontent.com/Bhavanarisatwik/ML-modle-v0/main"
+function Write-Fail($msg) {{
+    Write-Host "  [X] " -NoNewline -ForegroundColor Red
+    Write-Host $msg
+}}
 
-echo [1/6] Creating installation directory...
-if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"
-cd /d "%INSTALL_DIR%"
+# Check if running as admin
+$isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 
-echo [2/6] Checking Python installation...
-set "PYTHON_CMD="
+if (-not $isAdmin) {{
+    Write-Host ""
+    Write-Host "===============================================" -ForegroundColor Cyan
+    Write-Host "  DecoyVerse Agent Installer v2.0" -ForegroundColor White
+    Write-Host "  Node: {node["name"]}" -ForegroundColor Yellow
+    Write-Host "===============================================" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "[!] Requesting Administrator privileges..." -ForegroundColor Yellow
+    Write-Host "    Please click Yes on the UAC prompt..." -ForegroundColor Gray
+    Write-Host ""
+    
+    # Re-launch as admin
+    $scriptPath = $MyInvocation.MyCommand.Path
+    Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`"" -Verb RunAs -Wait
+    exit
+}}
 
-:: Check common Python locations
-where python >nul 2>&1 && (
-    for /f "tokens=*" %%i in ('python --version 2^>^&1') do (
-        echo %%i | findstr /C:"Python 3" >nul && set "PYTHON_CMD=python"
+Clear-Host
+Write-Host ""
+Write-Host "===============================================" -ForegroundColor Cyan
+Write-Host "  DecoyVerse Agent Installer v2.0" -ForegroundColor White
+Write-Host "  Node: {node["name"]}" -ForegroundColor Yellow
+Write-Host "===============================================" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "[OK] Running with Administrator privileges" -ForegroundColor Green
+Write-Host ""
+
+$INSTALL_DIR = "C:\\DecoyVerse"
+$GITHUB_REPO = "https://raw.githubusercontent.com/Bhavanarisatwik/ML-modle-v0/main"
+
+# Step 1: Create directory
+Write-Step "1/6" "Creating installation directory..."
+if (-not (Test-Path $INSTALL_DIR)) {{
+    New-Item -ItemType Directory -Path $INSTALL_DIR -Force | Out-Null
+}}
+Set-Location $INSTALL_DIR
+Write-Success "Directory ready: $INSTALL_DIR"
+
+# Step 2: Check Python
+Write-Step "2/6" "Checking Python installation..."
+$pythonCmd = $null
+
+# Try to find Python
+try {{
+    $pythonVersion = & python --version 2>&1
+    if ($pythonVersion -match "Python 3") {{
+        $pythonCmd = "python"
+    }}
+}} catch {{}}
+
+if (-not $pythonCmd) {{
+    try {{
+        $pythonVersion = & python3 --version 2>&1
+        if ($pythonVersion -match "Python 3") {{
+            $pythonCmd = "python3"
+        }}
+    }} catch {{}}
+}}
+
+if (-not $pythonCmd) {{
+    $paths = @(
+        "$env:LOCALAPPDATA\\Programs\\Python\\Python311\\python.exe",
+        "$env:LOCALAPPDATA\\Programs\\Python\\Python310\\python.exe",
+        "C:\\Python311\\python.exe",
+        "C:\\Python310\\python.exe"
     )
-)
+    foreach ($p in $paths) {{
+        if (Test-Path $p) {{
+            $pythonCmd = $p
+            break
+        }}
+    }}
+}}
 
-if not defined PYTHON_CMD (
-    where python3 >nul 2>&1 && set "PYTHON_CMD=python3"
-)
+if (-not $pythonCmd) {{
+    Write-Fail "Python not found. Please install Python 3.10+ from python.org"
+    Write-Host ""
+    Write-Host "Press any key to exit..." -ForegroundColor Yellow
+    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+    exit 1
+}}
+Write-Success "Found Python: $pythonCmd"
 
-if not defined PYTHON_CMD (
-    if exist "C:\\Python311\\python.exe" set "PYTHON_CMD=C:\\Python311\\python.exe"
-)
+# Step 3: Write config
+Write-Step "3/6" "Writing agent configuration..."
+$config = @'
+{{
+  "node_id": "{node["node_id"]}",
+  "node_api_key": "{node["node_api_key"]}",
+  "node_name": "{node["name"]}",
+  "os_type": "{node.get("os_type", "windows")}",
+  "backend_url": "https://ml-modle-v0-1.onrender.com/api",
+  "ml_service_url": "https://ml-modle-v0-2.onrender.com",
+  "deployment_config": {{
+    "initial_decoys": {deployment_config.get("initial_decoys", 3)},
+    "initial_honeytokens": {deployment_config.get("initial_honeytokens", 5)},
+    "deploy_path": null
+  }}
+}}
+'@
+$utf8NoBom = New-Object System.Text.UTF8Encoding $false
+[System.IO.File]::WriteAllText("$INSTALL_DIR\\agent_config.json", $config, $utf8NoBom)
+Write-Success "Config saved!"
 
-if not defined PYTHON_CMD (
-    if exist "%LOCALAPPDATA%\\Programs\\Python\\Python311\\python.exe" set "PYTHON_CMD=%LOCALAPPDATA%\\Programs\\Python\\Python311\\python.exe"
-)
+# Step 4: Download agent files
+Write-Step "4/6" "Downloading agent files..."
+$files = @("agent.py", "agent_setup.py", "agent_config.py", "file_monitor.py", "alert_sender.py")
+foreach ($file in $files) {{
+    try {{
+        Invoke-WebRequest -Uri "$GITHUB_REPO/$file" -OutFile "$INSTALL_DIR\\$file" -UseBasicParsing
+        Write-Success "Downloaded: $file"
+    }} catch {{
+        Write-Fail "Failed to download: $file"
+    }}
+}}
 
-if not defined PYTHON_CMD (
-    if exist "%LOCALAPPDATA%\\Programs\\Python\\Python310\\python.exe" set "PYTHON_CMD=%LOCALAPPDATA%\\Programs\\Python\\Python310\\python.exe"
-)
+# Step 5: Install dependencies
+Write-Step "5/6" "Installing Python dependencies..."
+& $pythonCmd -m pip install --quiet --upgrade pip 2>$null
+& $pythonCmd -m pip install --quiet requests watchdog psutil 2>$null
+Write-Success "Dependencies installed!"
 
-if not defined PYTHON_CMD (
-    echo   Python not found. Installing Python 3.11...
-    echo   Downloading Python installer...
-    powershell -Command "Invoke-WebRequest -Uri 'https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe' -OutFile '%INSTALL_DIR%\\python-installer.exe'"
-    
-    echo   Installing Python (this may take a minute)...
-    "%INSTALL_DIR%\\python-installer.exe" /quiet InstallAllUsers=1 PrependPath=1 Include_pip=1
-    del "%INSTALL_DIR%\\python-installer.exe"
-    
-    :: Refresh PATH
-    set "PATH=%PATH%;C:\\Program Files\\Python311;C:\\Program Files\\Python311\\Scripts"
-    set "PYTHON_CMD=python"
-    echo   Python installed successfully!
-) else (
-    echo   Found Python: %PYTHON_CMD%
-)
+# Step 6: Run agent
+Write-Host ""
+Write-Step "6/6" "Starting DecoyVerse agent..."
+Write-Host "===============================================" -ForegroundColor Cyan
+Write-Host ""
 
-echo [3/6] Writing agent configuration...
-(
-echo {{
-echo   "node_id": "{node["node_id"]}",
-echo   "node_api_key": "{node["node_api_key"]}",
-echo   "node_name": "{node["name"]}",
-echo   "os_type": "{node.get("os_type", "windows")}",
-echo   "backend_url": "https://ml-modle-v0-1.onrender.com/api",
-echo   "ml_service_url": "https://ml-modle-v0-2.onrender.com",
-echo   "deployment_config": {{
-echo     "initial_decoys": {deployment_config.get("initial_decoys", 3)},
-echo     "initial_honeytokens": {deployment_config.get("initial_honeytokens", 5)},
-echo     "deploy_path": null
-echo   }}
-echo }}
-) > "%INSTALL_DIR%\\agent_config.json"
-echo   Config saved!
+Set-Location $INSTALL_DIR
+& $pythonCmd agent.py
 
-echo [4/6] Downloading agent files...
-powershell -Command "Invoke-WebRequest -Uri '%GITHUB_REPO%/agent.py' -OutFile '%INSTALL_DIR%\\agent.py' -UseBasicParsing" 2>nul && echo   Downloaded: agent.py
-powershell -Command "Invoke-WebRequest -Uri '%GITHUB_REPO%/agent_setup.py' -OutFile '%INSTALL_DIR%\\agent_setup.py' -UseBasicParsing" 2>nul && echo   Downloaded: agent_setup.py
-powershell -Command "Invoke-WebRequest -Uri '%GITHUB_REPO%/agent_config.py' -OutFile '%INSTALL_DIR%\\agent_config.py' -UseBasicParsing" 2>nul && echo   Downloaded: agent_config.py
-powershell -Command "Invoke-WebRequest -Uri '%GITHUB_REPO%/file_monitor.py' -OutFile '%INSTALL_DIR%\\file_monitor.py' -UseBasicParsing" 2>nul && echo   Downloaded: file_monitor.py
-powershell -Command "Invoke-WebRequest -Uri '%GITHUB_REPO%/alert_sender.py' -OutFile '%INSTALL_DIR%\\alert_sender.py' -UseBasicParsing" 2>nul && echo   Downloaded: alert_sender.py
-
-echo [5/6] Installing Python dependencies...
-%PYTHON_CMD% -m pip install --quiet --upgrade pip 2>nul
-%PYTHON_CMD% -m pip install --quiet requests watchdog psutil 2>nul
-echo   Dependencies installed!
-
-echo.
-echo [6/6] Starting DecoyVerse agent...
-echo ===============================================
-echo.
-
-cd /d "%INSTALL_DIR%"
-%PYTHON_CMD% agent.py
-
-echo.
-echo ===============================================
-echo   If the agent exited, you can restart it with:
-echo   cd %INSTALL_DIR%
-echo   %PYTHON_CMD% agent.py
-echo ===============================================
-echo.
-pause
+Write-Host ""
+Write-Host "===============================================" -ForegroundColor Cyan
+Write-Host "  Agent stopped. To restart manually:" -ForegroundColor White
+Write-Host "  cd $INSTALL_DIR" -ForegroundColor Gray
+Write-Host "  python agent.py" -ForegroundColor Gray
+Write-Host "===============================================" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "Press any key to exit..." -ForegroundColor Yellow
+$null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
 '''
         
-        # Return batch script
+        # Return PowerShell script
         return StreamingResponse(
-            io.BytesIO(bat_script.encode('utf-8')),
-            media_type="application/x-bat",
+            io.BytesIO(ps_script.encode('utf-8')),
+            media_type="application/octet-stream",
             headers={
-                "Content-Disposition": f"attachment; filename=DecoyVerse-Setup-{node['name'].replace(' ', '_')}.bat"
+                "Content-Disposition": f"attachment; filename=DecoyVerse-Setup-{node['name'].replace(' ', '_')}.ps1"
             }
         )
     except HTTPException:
