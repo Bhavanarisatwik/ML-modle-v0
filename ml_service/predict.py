@@ -56,10 +56,9 @@ class AttackPredictor:
         anomaly_score = self.anomaly_model.score_samples(features_scaled)[0]
         is_anomaly = self.anomaly_model.predict(features_scaled)[0] == -1
         
-        # Convert anomaly score to risk score (1-10)
-        # Anomaly scores are negative, more negative = more anomalous
-        # Range typically -1 to ~0, we'll normalize to 1-10 scale
-        risk_score = self._compute_risk_score(anomaly_score, confidence, attack_type)
+        # Convert anomaly score to risk score (0-10)
+        # Pass features for enhanced risk calculation
+        risk_score = self._compute_risk_score(anomaly_score, confidence, attack_type, features)
         
         return {
             'attack_type': attack_type,
@@ -71,44 +70,63 @@ class AttackPredictor:
         }
     
     def _compute_risk_score(self, anomaly_score: float, confidence: float, 
-                           attack_type: str) -> int:
+                           attack_type: str, features: list = None) -> int:
         """
-        Compute risk score from 1-10 based on anomaly and confidence
+        Compute risk score from 0-10 based on anomaly, confidence, and features
+        
+        Improved scoring for Decoyvers environment:
+        - Confidence contributes 60% (0-6 points)
+        - Anomaly score contributes 40% (0-4 points)
+        - Honeytoken access adds +2 points
+        - High failed logins adds +1 point
         
         Args:
             anomaly_score: Score from anomaly detector (negative values)
             confidence: Prediction confidence (0-1)
             attack_type: Predicted attack type
+            features: Raw feature values (optional)
         
         Returns:
-            Risk score from 1-10
+            Risk score from 0-10
         """
-        # Normalize anomaly score (-1 to 0 becomes 0 to 1)
+        # Base score from confidence (0-6 points)
+        confidence_component = confidence * 6
+        
+        # Anomaly component (0-4 points)
+        # Anomaly scores are negative, more negative = more anomalous
+        # Normalize to 0-1 range, then scale to 0-4
         anomaly_normalized = min(max(abs(anomaly_score), 0), 1)
+        anomaly_component = anomaly_normalized * 4
         
-        # Base risk from anomaly detection (0-5)
-        anomaly_risk = anomaly_normalized * 5
+        # Combine base score
+        risk_score = confidence_component + anomaly_component
         
-        # Add confidence-based risk (0-5)
-        # Higher confidence in non-normal attacks = higher risk
-        confidence_risk = confidence * 5 if attack_type != 'Normal' else confidence * 2
+        # Feature-based bonuses
+        if features:
+            failed_logins = features[0] if len(features) > 0 else 0
+            honeytoken_access = features[4] if len(features) > 4 else 0
+            
+            # Honeytoken access is critical (+2 points)
+            if honeytoken_access == 1:
+                risk_score += 2
+            
+            # High failed logins indicate brute force (+1 point)
+            if failed_logins > 50:
+                risk_score += 1
         
-        # Combine scores
-        raw_risk = anomaly_risk * 0.4 + confidence_risk * 0.6
-        
-        # Attack type multiplier
-        attack_multipliers = {
-            'Injection': 1.3,      # SQL injection is very dangerous
-            'BruteForce': 1.1,     # Brute force is serious
-            'DataExfil': 1.2,      # Data theft is serious
-            'Recon': 0.9,          # Reconnaissance is less immediate threat
-            'Normal': 0.3           # Normal traffic has low risk
+        # Attack type boosts
+        attack_boosts = {
+            'DataExfil': 2.0,      # Honeytoken access = critical
+            'Injection': 1.5,      # SQL injection very dangerous
+            'BruteForce': 1.2,     # Brute force serious
+            'Recon': 0.8,          # Reconnaissance lower priority
+            'Normal': 0.3          # Normal traffic minimal risk
         }
         
-        final_risk = raw_risk * attack_multipliers.get(attack_type, 1.0)
+        risk_score *= attack_boosts.get(attack_type, 1.0)
         
-        # Ensure score is between 1-10
-        risk_score = max(1, min(10, int(final_risk)))
+        # Clamp to 0-10 range
+        risk_score = max(0, min(10, int(round(risk_score))))
         
         return risk_score
 
