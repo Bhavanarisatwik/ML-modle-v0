@@ -450,7 +450,7 @@ curl -I https://api.decoyverse.example.com/health
 
 @router.post("/agent/register-decoys")
 async def register_deployed_decoys(
-    decoys: list,
+    request: Request,
     x_node_id: Optional[str] = Header(None),
     x_node_key: Optional[str] = Header(None)
 ):
@@ -465,6 +465,11 @@ async def register_deployed_decoys(
     - List of deployed decoys with file_name, file_path, type
     """
     try:
+        # Parse JSON body as list
+        decoys = await request.json()
+        if not isinstance(decoys, list):
+            raise HTTPException(status_code=400, detail="Body must be a list of decoys")
+        
         logger.info(f"📥 Registering {len(decoys)} deployed decoys from node {x_node_id}")
         
         # Validate node access

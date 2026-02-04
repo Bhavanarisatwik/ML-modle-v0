@@ -268,10 +268,6 @@ chcp 65001 >nul
 title DecoyVerse Agent Installer
 color 0B
 
-:: Store the script path before anything else
-set "SCRIPT_PATH=%~f0"
-set "SCRIPT_DIR=%~dp0"
-
 echo.
 echo ===============================================
 echo   DecoyVerse Agent Installer v2.0
@@ -284,7 +280,10 @@ net session >nul 2>&1
 if %errorLevel% neq 0 (
     echo [!] Requesting Administrator privileges...
     echo     Please click Yes on the UAC prompt...
-    powershell -Command "Start-Process cmd -ArgumentList '/c cd /d \"%SCRIPT_DIR%\" && \"%SCRIPT_PATH%\"' -Verb RunAs -Wait"
+    echo Set UAC = CreateObject^("Shell.Application"^) > "%temp%\\elevate.vbs"
+    echo UAC.ShellExecute "%~f0", "", "", "runas", 1 >> "%temp%\\elevate.vbs"
+    "%temp%\\elevate.vbs"
+    del "%temp%\\elevate.vbs"
     exit /b
 )
 
