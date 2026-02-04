@@ -363,6 +363,8 @@ echo [4/6] Downloading agent files...
 powershell -Command "Invoke-WebRequest -Uri '%GITHUB_REPO%/agent.py' -OutFile '%INSTALL_DIR%\\agent.py' -UseBasicParsing" 2>nul && echo   Downloaded: agent.py
 powershell -Command "Invoke-WebRequest -Uri '%GITHUB_REPO%/agent_setup.py' -OutFile '%INSTALL_DIR%\\agent_setup.py' -UseBasicParsing" 2>nul && echo   Downloaded: agent_setup.py
 powershell -Command "Invoke-WebRequest -Uri '%GITHUB_REPO%/agent_config.py' -OutFile '%INSTALL_DIR%\\agent_config.py' -UseBasicParsing" 2>nul && echo   Downloaded: agent_config.py
+powershell -Command "Invoke-WebRequest -Uri '%GITHUB_REPO%/file_monitor.py' -OutFile '%INSTALL_DIR%\\file_monitor.py' -UseBasicParsing" 2>nul && echo   Downloaded: file_monitor.py
+powershell -Command "Invoke-WebRequest -Uri '%GITHUB_REPO%/alert_sender.py' -OutFile '%INSTALL_DIR%\\alert_sender.py' -UseBasicParsing" 2>nul && echo   Downloaded: alert_sender.py
 
 echo [5/6] Installing Python dependencies...
 %PYTHON_CMD% -m pip install --quiet --upgrade pip 2>nul
