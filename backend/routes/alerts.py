@@ -7,10 +7,10 @@ from fastapi import APIRouter, HTTPException, Header
 from typing import List, Optional
 import logging
 
-from models.log_models import StatsResponse, Alert
-from services.db_service import db_service
-from services.auth_service import auth_service
-from config import AUTH_ENABLED, DEMO_USER_ID
+from backend.models.log_models import StatsResponse, Alert
+from backend.services.db_service import db_service
+from backend.services.auth_service import auth_service
+from backend.config import AUTH_ENABLED, DEMO_USER_ID
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["alerts"])

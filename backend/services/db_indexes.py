@@ -3,7 +3,7 @@ Database Index Initialization
 Creates MongoDB indexes for performance and uniqueness
 """
 
-from config import (
+from backend.config import (
     USERS_COLLECTION,
     NODES_COLLECTION,
     ALERTS_COLLECTION,

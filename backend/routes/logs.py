@@ -8,9 +8,9 @@ from typing import List, Optional
 import logging
 from datetime import datetime
 
-from services.db_service import db_service
-from services.auth_service import auth_service
-from config import AUTH_ENABLED, DEMO_USER_ID
+from backend.services.db_service import db_service
+from backend.services.auth_service import auth_service
+from backend.config import AUTH_ENABLED, DEMO_USER_ID
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/logs", tags=["logs"])
@@ -71,7 +71,7 @@ async def get_logs(
         
         # Get user's nodes
         nodes = await db_service.get_nodes_by_user(user_id)
-        node_ids = [n.get("node_id") for n in nodes]
+        node_ids = [str(n.get("node_id", "")) for n in nodes if n.get("node_id")]
         
         if not node_ids:
             return []

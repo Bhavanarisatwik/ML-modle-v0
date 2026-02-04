@@ -7,8 +7,8 @@ import requests
 from typing import Dict, Any, Optional
 import logging
 
-from models.log_models import MLPrediction
-from config import ML_PREDICT_ENDPOINT
+from backend.models.log_models import MLPrediction
+from backend.config import ML_PREDICT_ENDPOINT
 
 logger = logging.getLogger(__name__)
 

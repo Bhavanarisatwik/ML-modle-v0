@@ -8,10 +8,10 @@ from datetime import datetime
 import uuid
 import logging
 
-from models.log_models import UserCreate, UserLogin, TokenResponse, UserResponse
-from services.db_service import db_service
-from services.auth_service import auth_service
-from config import AUTH_ENABLED
+from backend.models.log_models import UserCreate, UserLogin, TokenResponse, UserResponse
+from backend.services.db_service import db_service
+from backend.services.auth_service import auth_service
+from backend.config import AUTH_ENABLED
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["authentication"])

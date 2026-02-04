@@ -7,7 +7,7 @@ from fastapi import HTTPException
 from typing import Dict, Any
 import logging
 
-from services.db_service import db_service
+from backend.services.db_service import db_service
 
 logger = logging.getLogger(__name__)
 

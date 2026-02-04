@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional
 import logging
 
-from config import (
+from backend.config import (
     MONGODB_URI,
     DATABASE_NAME,
     HONEYPOT_LOGS_COLLECTION,
@@ -22,7 +22,7 @@ from config import (
     AUTH_ENABLED,
     DEMO_USER_ID
 )
-from models.log_models import Alert, AttackerProfile
+from backend.models.log_models import Alert, AttackerProfile
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,14 @@ class DatabaseService:
     
     def __init__(self):
         self.client: Optional[AsyncIOMotorClient] = None
-        self.db = None
+        self.db: Optional[Any] = None
+    
+    def _ensure_db(self) -> bool:
+        """Check if database is connected. Returns True if connected."""
+        if self.db is None:
+            logger.warning("Database not connected - operation skipped")
+            return False
+        return True
     
     async def connect(self):
         """Connect to MongoDB"""
@@ -59,6 +66,9 @@ class DatabaseService:
     async def create_user(self, user_data: Dict[str, Any]) -> Optional[str]:
         """Create new user"""
         try:
+            if not self.db:
+                logger.error("Database not connected")
+                return None
             result = await self.db[USERS_COLLECTION].insert_one(user_data)
             logger.info(f"✓ User created: {user_data['email']}")
             return str(result.inserted_id)
@@ -69,6 +79,8 @@ class DatabaseService:
     async def get_user_by_email(self, email: str) -> Optional[Dict[str, Any]]:
         """Get user by email"""
         try:
+            if not self.db:
+                return None
             user = await self.db[USERS_COLLECTION].find_one({"email": email})
             return user
         except Exception as e:
@@ -78,6 +90,8 @@ class DatabaseService:
     async def get_user_by_id(self, user_id: str) -> Optional[Dict[str, Any]]:
         """Get user by ID"""
         try:
+            if not self.db:
+                return None
             user = await self.db[USERS_COLLECTION].find_one({"id": user_id})
             return user
         except Exception as e:
@@ -89,6 +103,8 @@ class DatabaseService:
     async def create_node(self, node_data: Dict[str, Any]) -> Optional[str]:
         """Create new node"""
         try:
+            if not self.db:
+                return None
             result = await self.db[NODES_COLLECTION].insert_one(node_data)
             logger.info(f"✓ Node created: {node_data['node_id']}")
             return str(result.inserted_id)
@@ -99,6 +115,8 @@ class DatabaseService:
     async def get_nodes_by_user(self, user_id: str) -> List[Dict[str, Any]]:
         """Get all nodes for a user"""
         try:
+            if not self.db:
+                return []
             cursor = self.db[NODES_COLLECTION].find({"user_id": user_id})
             nodes = await cursor.to_list(length=1000)
             
@@ -113,6 +131,8 @@ class DatabaseService:
     async def get_node_by_id(self, node_id: str) -> Optional[Dict[str, Any]]:
         """Get node by ID"""
         try:
+            if not self.db:
+                return None
             node = await self.db[NODES_COLLECTION].find_one({"node_id": node_id})
             if node:
                 node["_id"] = str(node["_id"])
@@ -124,6 +144,8 @@ class DatabaseService:
     async def update_node_status(self, node_id: str, status: str) -> bool:
         """Update node status"""
         try:
+            if not self.db:
+                return False
             await self.db[NODES_COLLECTION].update_one(
                 {"node_id": node_id},
                 {"$set": {"status": status}}

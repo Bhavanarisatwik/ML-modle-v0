@@ -3,7 +3,8 @@ Agent Routes
 Endpoints for endpoint agent events with node validation
 """
 
-from fastapi import APIRouter, HTTPException, Header, FileResponse
+from fastapi import APIRouter, HTTPException, Header
+from fastapi.responses import FileResponse
 from datetime import datetime
 from typing import Optional
 import logging
@@ -12,12 +13,12 @@ import zipfile
 import io
 from pathlib import Path
 
-from models.log_models import AgentEvent, Alert
-from services.db_service import db_service
-from services.ml_service import ml_service
-from services.node_service import node_service
-from services.node_auth import validate_node_access
-from config import ALERT_RISK_THRESHOLD, AUTH_ENABLED, DEMO_USER_ID
+from backend.models.log_models import AgentEvent, Alert
+from backend.services.db_service import db_service
+from backend.services.ml_service import ml_service
+from backend.services.node_service import node_service
+from backend.services.node_auth import validate_node_access
+from backend.config import ALERT_RISK_THRESHOLD, AUTH_ENABLED, DEMO_USER_ID
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["agent"])

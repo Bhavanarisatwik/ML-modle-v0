@@ -1,0 +1,22 @@
+{
+  "include": ["backend", ".", "ml_service"],
+  "exclude": ["**/__pycache__", ".venv", ".git"],
+  "typeCheckingMode": "basic",
+  "pythonVersion": "3.11",
+  "pythonPlatform": "Windows",
+  "extraPaths": [
+    "${workspaceRoot}",
+    "${workspaceRoot}/backend",
+    "${workspaceRoot}/backend/routes",
+    "${workspaceRoot}/backend/services",
+    "${workspaceRoot}/ml_service"
+  ],
+  "venvPath": "${workspaceRoot}/.venv",
+  "reportMissingImports": true,
+  "reportMissingTypeStubs": false,
+  "reportPrivateImportUsage": false,
+  "reportOptionalSubscript": "warning",
+  "reportOptionalMemberAccess": "warning",
+  "reportInvalidTypeForm": "warning",
+  "stubPath": "${workspaceRoot}/typings"
+}

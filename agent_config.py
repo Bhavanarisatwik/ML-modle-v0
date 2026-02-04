@@ -198,13 +198,20 @@ def ensure_agent_registered(config: AgentConfig) -> bool:
         True if registered or successfully registered
     """
     if config.is_registered():
-        logger.info(f"✓ Agent registered as: {config.get_node_id()}")
+        node_id = config.get_node_id()
+        node_api_key = config.get_node_api_key()
+        
+        if not node_id or not node_api_key:
+            logger.error("✗ Node ID or API key is missing!")
+            return False
+        
+        logger.info(f"✓ Agent registered as: {node_id}")
         
         # Send heartbeat
         registration = AgentRegistration(config)
         registration.send_heartbeat(
-            config.get_node_id(),
-            config.get_node_api_key()
+            node_id,
+            node_api_key
         )
         
         return True

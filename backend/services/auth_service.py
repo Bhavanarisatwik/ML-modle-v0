@@ -9,11 +9,11 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 import logging
 
-from config import (
+from backend.config import (
     JWT_SECRET_KEY, JWT_ALGORITHM, JWT_ACCESS_TOKEN_EXPIRE_MINUTES,
     DEMO_USER_ID, DEMO_USER_EMAIL, AUTH_ENABLED
 )
-from models.log_models import UserResponse
+from backend.models.log_models import UserResponse
 
 logger = logging.getLogger(__name__)
 

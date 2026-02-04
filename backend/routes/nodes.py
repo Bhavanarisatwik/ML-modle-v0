@@ -3,7 +3,8 @@ Node Management Routes
 CRUD operations for nodes
 """
 
-from fastapi import APIRouter, HTTPException, Header, FileResponse
+from fastapi import APIRouter, HTTPException, Header
+from fastapi.responses import FileResponse
 from typing import List, Optional
 from datetime import datetime
 import logging
@@ -11,10 +12,10 @@ import json
 import io
 from pathlib import Path
 
-from models.log_models import NodeCreate, NodeResponse, NodeCreateResponse, NodeUpdate, DecoyResponse
-from services.db_service import db_service
-from services.node_service import node_service
-from config import AUTH_ENABLED
+from backend.models.log_models import NodeCreate, NodeResponse, NodeCreateResponse, NodeUpdate, DecoyResponse
+from backend.services.db_service import db_service
+from backend.services.node_service import node_service
+from backend.config import AUTH_ENABLED
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/nodes", tags=["nodes"])
@@ -22,7 +23,7 @@ router = APIRouter(prefix="/nodes", tags=["nodes"])
 
 def get_user_id_from_header(authorization: Optional[str] = Header(None)) -> str:
     """Extract user_id from Authorization header"""
-    from services.auth_service import auth_service
+    from backend.services.auth_service import auth_service
     from config import DEMO_USER_ID
     
     user_id = auth_service.extract_user_from_token(authorization)

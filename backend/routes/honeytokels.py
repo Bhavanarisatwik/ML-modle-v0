@@ -7,9 +7,9 @@ from fastapi import APIRouter, HTTPException, Header
 from typing import List, Optional
 import logging
 
-from services.db_service import db_service
-from services.auth_service import auth_service
-from config import AUTH_ENABLED, DEMO_USER_ID
+from backend.services.db_service import db_service
+from backend.services.auth_service import auth_service
+from backend.config import AUTH_ENABLED, DEMO_USER_ID
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/honeytokels", tags=["honeytokels"])
@@ -63,7 +63,7 @@ async def get_honeytokels(
         
         # Get user's nodes
         nodes = await db_service.get_nodes_by_user(user_id)
-        node_ids = [n.get("node_id") for n in nodes]
+        node_ids = [str(n.get("node_id", "")) for n in nodes if n.get("node_id")]
         
         # Get all honeytokels for user's nodes
         if not node_ids:

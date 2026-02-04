@@ -7,10 +7,10 @@ from fastapi import APIRouter, HTTPException, Header
 from typing import List, Optional, Dict, Any
 import logging
 
-from models.log_models import AttackerProfile
-from services.db_service import db_service
-from services.auth_service import auth_service
-from config import AUTH_ENABLED, DEMO_USER_ID
+from backend.models.log_models import AttackerProfile
+from backend.services.db_service import db_service
+from backend.services.auth_service import auth_service
+from backend.config import AUTH_ENABLED, DEMO_USER_ID
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/ai", tags=["ai-insights"])
@@ -138,7 +138,8 @@ async def get_ai_insights(
         
         # Detect scanner bots (high port_scan activity)
         scanners = await db_service.detect_scanner_bots(limit)
-        scanner_bots = [ScannerBot(s.get("source_ip"), s.get("total_attacks", 0), s.get("last_seen", "")).to_dict() for s in scanners]
+        source_ip = scanners[0].get("source_ip", "") if scanners else ""
+        scanner_bots = [ScannerBot(str(s.get("source_ip", "")), int(s.get("total_attacks", 0)), str(s.get("last_seen", ""))).to_dict() for s in scanners]
         
         # Calculate overall confidence
         all_profiles = attacker_profiles + scanner_bots

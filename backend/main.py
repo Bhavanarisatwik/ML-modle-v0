@@ -8,14 +8,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import logging
 import sys
+import os
 
-from config import (
+# Add the parent directory to the Python path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from backend.config import (
     API_TITLE, API_VERSION, API_DESCRIPTION, CORS_ORIGINS,
     AUTH_ENABLED, BACKEND_HOST, BACKEND_PORT
 )
-from routes import auth_router, nodes_router, honeypot_router, agent_router, alerts_router, decoys_router, honeytokels_router, logs_router, ai_insights_router
-from services.db_service import db_service
-from services.db_indexes import create_indexes
+from backend.routes import auth_router, nodes_router, honeypot_router, agent_router, alerts_router, decoys_router, honeytokels_router, logs_router, ai_insights_router
+from backend.services.db_service import db_service
+from backend.services.db_indexes import create_indexes
 
 # Setup logging
 logging.basicConfig(
