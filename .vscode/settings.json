@@ -1,0 +1,20 @@
+{
+  "python.defaultInterpreterPath": "C:\\Users\\satwi\\AppData\\Local\\Programs\\Python\\Python311\\python.exe",
+  "python.analysis.pythonPath": "C:\\Users\\satwi\\AppData\\Local\\Programs\\Python\\Python311\\python.exe",
+  "python.analysis.extraPaths": [
+    "${workspaceFolder}",
+    "${workspaceFolder}/backend",
+    "${workspaceFolder}/backend/routes",
+    "${workspaceFolder}/backend/services",
+    "${workspaceFolder}/ml_service"
+  ],
+  "python.linting.enabled": true,
+  "python.linting.pylintEnabled": false,
+  "[python]": {
+    "editor.defaultFormatter": "ms-python.python",
+    "editor.formatOnSave": true,
+    "editor.rulers": [88, 100]
+  },
+  "python.analysis.typeCheckingMode": "basic",
+  "pylance.analysis.typeCheckingMode": "basic"
+}

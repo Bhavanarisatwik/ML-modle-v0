@@ -24,7 +24,7 @@ router = APIRouter(prefix="/nodes", tags=["nodes"])
 def get_user_id_from_header(authorization: Optional[str] = Header(None)) -> str:
     """Extract user_id from Authorization header"""
     from backend.services.auth_service import auth_service
-    from config import DEMO_USER_ID
+    from backend.config import DEMO_USER_ID
     
     user_id = auth_service.extract_user_from_token(authorization)
     return user_id or DEMO_USER_ID
@@ -65,7 +65,7 @@ async def create_node(
 async def list_nodes(authorization: Optional[str] = Header(None)):
     """
     List all nodes for authenticated user
-    
+
     Returns user-scoped node list
     """
     try:
@@ -83,6 +83,7 @@ async def list_nodes(authorization: Optional[str] = Header(None)):
     except Exception as e:
         logger.error(f"Error listing nodes: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 
 @router.patch("/{node_id}", response_model=NodeResponse)
