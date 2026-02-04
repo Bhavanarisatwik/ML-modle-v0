@@ -11,6 +11,7 @@ from .decoys import router as decoys_router
 from .honeytokels import router as honeytokels_router
 from .logs import router as logs_router
 from .ai_insights import router as ai_insights_router
+from .install import router as install_router
 
 __all__ = [
     "auth_router",
@@ -21,5 +22,6 @@ __all__ = [
     "decoys_router",
     "honeytokels_router",
     "logs_router",
-    "ai_insights_router"
+    "ai_insights_router",
+    "install_router"
 ]

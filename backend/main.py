@@ -17,7 +17,7 @@ from backend.config import (
     API_TITLE, API_VERSION, API_DESCRIPTION, CORS_ORIGINS,
     AUTH_ENABLED, BACKEND_HOST, BACKEND_PORT
 )
-from backend.routes import auth_router, nodes_router, honeypot_router, agent_router, alerts_router, decoys_router, honeytokels_router, logs_router, ai_insights_router
+from backend.routes import auth_router, nodes_router, honeypot_router, agent_router, alerts_router, decoys_router, honeytokels_router, logs_router, ai_insights_router, install_router
 from backend.services.db_service import db_service
 from backend.services.db_indexes import create_indexes
 
@@ -73,6 +73,7 @@ app.include_router(decoys_router)
 app.include_router(honeytokels_router)
 app.include_router(logs_router)
 app.include_router(ai_insights_router)
+app.include_router(install_router)
 
 
 # Root endpoint
