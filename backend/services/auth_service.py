@@ -56,12 +56,13 @@ class AuthService:
         """Verify JWT token and return payload"""
         try:
             payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+            logger.info(f"✓ Token verified successfully. User: {payload.get('sub') or payload.get('userId')}")
             return payload
         except jwt.ExpiredSignatureError:
             logger.warning("Token expired")
             return None
-        except jwt.InvalidTokenError:
-            logger.warning("Invalid token")
+        except jwt.InvalidTokenError as e:
+            logger.warning(f"Invalid token: {e}")
             return None
     
     @staticmethod
@@ -82,18 +83,29 @@ class AuthService:
         If AUTH_ENABLED = True, validate token and return user_id
         """
         if not AUTH_ENABLED:
+            logger.info("AUTH_ENABLED=False, using demo user")
             return DEMO_USER_ID
         
-        if not authorization or not authorization.startswith("Bearer "):
+        if not authorization:
+            logger.warning("No Authorization header provided")
+            return None
+            
+        if not authorization.startswith("Bearer "):
+            logger.warning(f"Invalid Authorization header format: {authorization[:20]}...")
             return None
         
         token = authorization.replace("Bearer ", "")
+        logger.info(f"Verifying token (first 20 chars): {token[:20]}...")
+        
         payload = AuthService.verify_token(token)
         
         if payload:
             # Support both 'sub' (standard) and 'userId' (Express backend)
-            return payload.get("sub") or payload.get("userId")
+            user_id = payload.get("sub") or payload.get("userId")
+            logger.info(f"✓ Extracted user_id: {user_id}")
+            return user_id
         
+        logger.warning("Token verification failed - no payload returned")
         return None
 
 
