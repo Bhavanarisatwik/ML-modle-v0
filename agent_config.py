@@ -214,9 +214,13 @@ class AgentRegistration:
 
             if response.status_code in [200, 201]:
                 data = response.json() if response.content else {}
+                uninstall_flag = bool(data.get("uninstall"))
+                logger.info("✓ Heartbeat sent - node is now active")
+                if uninstall_flag:
+                    logger.warning("⚠️  Uninstall flag received from backend")
                 return {
                     "success": True,
-                    "uninstall": bool(data.get("uninstall"))
+                    "uninstall": uninstall_flag
                 }
 
             return {
