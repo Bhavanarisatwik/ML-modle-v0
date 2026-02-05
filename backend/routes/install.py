@@ -368,7 +368,7 @@ if ($process -and -not $process.HasExited) {{
 
 # Post-install verification (backend + decoys)
 Write-Status "" 
-Write-Status "🔎 Verifying connection and decoys..." "Cyan"
+Write-Status "[*] Verifying connection and decoys..." "Cyan"
 try {{
     $configPath = "$installDir\\agent_config.json"
     if (Test-Path $configPath) {{
@@ -389,7 +389,7 @@ try {{
         }} | ConvertTo-Json
 
         Invoke-RestMethod -Uri "$backendUrl/agent/heartbeat" -Method Post -Headers $headers -Body $heartbeatBody -ErrorAction Stop | Out-Null
-        Write-Status "      ✓ Backend connection OK" "Green"
+        Write-Status "      [OK] Backend connection OK" "Green"
 
         Start-Sleep -Seconds 3
 
@@ -397,15 +397,15 @@ try {{
         $decoysCount = ($decoysResp.decoys | Where-Object {{ $_.node_id -eq $nodeId }} | Measure-Object).Count
 
         if ($decoysCount -gt 0) {{
-            Write-Status "      ✓ Decoys deployed: $decoysCount" "Green"
+            Write-Status "      [OK] Decoys deployed: $decoysCount" "Green"
         }} else {{
-            Write-Status "      ⚠️  Decoys not visible yet (may take 30-60s)" "Yellow"
+            Write-Status "      [!] Decoys not visible yet (may take 30-60s)" "Yellow"
         }}
     }} else {{
-        Write-Status "      ⚠️  Missing agent_config.json for verification" "Yellow"
+        Write-Status "      [!] Missing agent_config.json for verification" "Yellow"
     }}
 }} catch {{
-    Write-Status "      ⚠️  Verification failed (backend may be waking up)" "Yellow"
+    Write-Status "      [!] Verification failed (backend may be waking up)" "Yellow"
     Write-Status "      Details: $($_.Exception.Message)" "Gray"
 }}
 
@@ -427,7 +427,7 @@ Write-Status "View deployed decoys in the DecoyVerse dashboard." "Green"
 Write-Status ""
 Write-Status "Useful commands:" "Yellow"
 Write-Status "  Stop agent:    Stop-Process -Name python" "Gray"
-Write-Status "  View logs:     Get-Content $installDir\\agent.log -Tail 50" "Gray"
+Write-Status "  View logs:     Get-Content \`$installDir\agent.log -Tail 50" "Gray"
 Write-Status "  Check status:  Get-ScheduledTask DecoyVerseAgent" "Gray"
 Write-Status ""
 
