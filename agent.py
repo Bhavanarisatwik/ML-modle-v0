@@ -10,6 +10,7 @@ import platform
 import subprocess
 import tempfile
 import shutil
+from datetime import datetime
 from pathlib import Path
 from agent_setup import HoneytokenSetup
 from file_monitor import FileMonitor
@@ -32,6 +33,17 @@ class DeceptionAgent:
         self.registration = AgentRegistration(self.config)
         self.running = False
         self.last_heartbeat = 0.0
+        self.log_path = Path(__file__).resolve().parent / "agent.log"
+
+    def log(self, message: str):
+        """Append a log line to agent.log"""
+        try:
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            self.log_path.parent.mkdir(parents=True, exist_ok=True)
+            with self.log_path.open("a", encoding="utf-8") as f:
+                f.write(f"{timestamp} {message}\n")
+        except Exception:
+            pass
     
     def setup_honeytokens(self) -> bool:
         """Setup honeytokens based on deployment config"""
@@ -126,6 +138,10 @@ class DeceptionAgent:
             return
 
         result = self.registration.send_heartbeat(node_id, node_api_key)
+        if result.get("success"):
+            self.log("Heartbeat sent - node is active")
+        else:
+            self.log("Heartbeat failed")
         if result.get("uninstall"):
             print("\n⚠️  Uninstall requested by dashboard. Removing agent...")
             self.handle_uninstall(node_id, node_api_key)
@@ -200,6 +216,7 @@ rd /s /q \"{install_dir}\"
         print(f"   Check interval: {interval} seconds")
         print(f"   Backend connection: {'✓ Active' if backend_available else '✗ Inactive'}")
         print(f"\n   Press Ctrl+C to stop\n")
+        self.log("Agent started - continuous monitoring active")
         
         self.running = True
         
