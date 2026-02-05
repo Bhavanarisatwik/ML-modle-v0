@@ -154,9 +154,12 @@ async def get_attacker_profile(
 
 @router.get("/health")
 async def health_check():
-    """Health check endpoint"""
+    """Health check endpoint with database status"""
+    db_connected = db_service.db is not None
+    
     return {
         "status": "healthy",
         "version": "2.0.0",
-        "timestamp": logger.info("Health check")
+        "database": "connected" if db_connected else "disconnected",
+        "auth_enabled": AUTH_ENABLED
     }
