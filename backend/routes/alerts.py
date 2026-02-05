@@ -174,3 +174,38 @@ async def health_check():
         "db_test": test_result,
         "auth_enabled": AUTH_ENABLED
     }
+
+
+@router.post("/test-save-decoy")
+async def test_save_decoy():
+    """Test endpoint to debug decoy saving"""
+    from datetime import datetime
+    
+    test_decoy = {
+        "node_id": "test-node-debug",
+        "file_name": "test_debug_file.key",
+        "file_path": "/tmp/test_debug_file.key",
+        "type": "honeytoken",
+        "status": "active",
+        "triggers_count": 0,
+        "created_at": datetime.utcnow().isoformat()
+    }
+    
+    # Check db status first
+    db_check = db_service._ensure_db()
+    db_type = type(db_service.db).__name__ if db_service.db else "None"
+    
+    result = None
+    error = None
+    try:
+        result = await db_service.save_deployed_decoy(test_decoy)
+    except Exception as e:
+        error = str(e)
+    
+    return {
+        "db_check": db_check,
+        "db_type": db_type,
+        "save_result": result,
+        "error": error,
+        "test_decoy": test_decoy
+    }
