@@ -157,9 +157,20 @@ async def health_check():
     """Health check endpoint with database status"""
     db_connected = db_service.db is not None
     
+    # Try a test operation
+    test_result = "not_tested"
+    if db_connected:
+        try:
+            # Try to ping the database
+            await db_service.db.command("ping")
+            test_result = "ping_success"
+        except Exception as e:
+            test_result = f"ping_failed: {str(e)}"
+    
     return {
         "status": "healthy",
         "version": "2.0.0",
         "database": "connected" if db_connected else "disconnected",
+        "db_test": test_result,
         "auth_enabled": AUTH_ENABLED
     }

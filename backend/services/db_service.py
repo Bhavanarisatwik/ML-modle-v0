@@ -37,8 +37,9 @@ class DatabaseService:
     def _ensure_db(self) -> bool:
         """Check if database is connected. Returns True if connected."""
         if self.db is None:
-            logger.warning("Database not connected - operation skipped")
+            logger.warning("Database not connected - operation skipped (self.db is None)")
             return False
+        logger.debug(f"Database check passed - db type: {type(self.db)}")
         return True
     
     async def connect(self):
