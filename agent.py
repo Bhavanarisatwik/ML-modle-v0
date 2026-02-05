@@ -158,20 +158,36 @@ class DeceptionAgent:
         system = platform.system().lower()
 
         if system == "windows":
-            script = f"""@echo off
-schtasks /Delete /TN DecoyVerseAgent /F >nul 2>&1
-timeout /t 3 /nobreak >nul
-rd /s /q \"{install_dir}\"
+            # PowerShell script with elevation to delete task and folder
+            ps_script = f"""
+$ErrorActionPreference = 'SilentlyContinue'
+
+# Request admin elevation if needed
+if (-NOT ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] 'Administrator')) {{
+    Start-Process powershell.exe -Verb runas -ArgumentList "-Command", "$_"
+    exit
+}}
+
+# Delete scheduled task
+schtasks /Delete /TN DecoyVerseAgent /F
+
+# Wait for task to be deleted
+Start-Sleep -Seconds 2
+
+# Delete installation directory
+Remove-Item -Path "{install_dir}" -Recurse -Force -ErrorAction SilentlyContinue
+
+exit
 """
-            temp_path = Path(tempfile.gettempdir()) / "decoyverse_uninstall.cmd"
-            temp_path.write_text(script, encoding="utf-8")
+            temp_path = Path(tempfile.gettempdir()) / "decoyverse_uninstall.ps1"
+            temp_path.write_text(ps_script, encoding="utf-8")
             try:
                 subprocess.Popen(
-                    ["cmd.exe", "/c", str(temp_path)],
+                    ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(temp_path)],
                     creationflags=subprocess.CREATE_NO_WINDOW
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                self.log(f"Uninstall error: {e}")
         else:
             try:
                 shutil.rmtree(install_dir, ignore_errors=True)
