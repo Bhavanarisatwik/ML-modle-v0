@@ -176,35 +176,10 @@ async def health_check():
     }
 
 
-@router.post("/test-save-decoy")
-async def test_save_decoy():
-    """Test endpoint to debug decoy saving"""
-    from datetime import datetime
-    
-    test_decoy = {
-        "node_id": "test-node-debug",
-        "file_name": "test_debug_file.key",
-        "file_path": "/tmp/test_debug_file.key",
-        "type": "honeytoken",
-        "status": "active",
-        "triggers_count": 0,
-        "created_at": datetime.utcnow().isoformat()
-    }
-    
-    # Check db status first  
-    db_is_none = db_service.db is None
-    db_type = str(type(db_service.db)) if db_service.db else "NoneType"
-    
-    result = None
-    error = None
-    try:
-        result = await db_service.save_deployed_decoy(test_decoy)
-    except Exception as e:
-        error = str(e)
-    
+@router.get("/test-db")
+async def test_db():
+    """Test endpoint to debug db connection"""
     return {
-        "db_is_none": db_is_none,
-        "db_type": db_type,
-        "save_result": result,
-        "error": error
+        "db_is_none": db_service.db is None,
+        "db_type": str(type(db_service.db))
     }
