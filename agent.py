@@ -51,14 +51,33 @@ class DeceptionAgent:
             node_id = self.config.get_node_id()
             node_api_key = self.config.get_node_api_key()
             
-            if node_id and node_api_key and deployed_decoys:
-                self.registration.register_deployed_decoys(
-                    node_id, 
-                    node_api_key, 
-                    deployed_decoys
-                )
+            print(f"   Deployed decoys count: {len(deployed_decoys)}")
             
-            return True
+            if not node_id:
+                print("   ⚠️  Node ID not found in config")
+                return False
+            
+            if not node_api_key:
+                print("   ⚠️  Node API key not found in config")
+                return False
+            
+            if not deployed_decoys:
+                print("   ⚠️  No decoys were deployed (deployment returned empty list)")
+                return False
+            
+            print(f"   Registering {len(deployed_decoys)} decoys with backend...")
+            success = self.registration.register_deployed_decoys(
+                node_id, 
+                node_api_key, 
+                deployed_decoys
+            )
+            
+            if success:
+                print("   ✓ Decoys registered successfully")
+            else:
+                print("   ✗ Failed to register decoys with backend")
+            
+            return success
         else:
             print("\n✗ Failed to deploy honeytokens")
             return False

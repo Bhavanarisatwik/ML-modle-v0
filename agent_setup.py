@@ -67,12 +67,41 @@ class SmartHoneytokenDeployer:
     def _get_default_base_dir(self) -> str:
         """Get OS-appropriate base directory"""
         home = Path.home()
+        
         if self.os_type == 'windows':
-            return str(home / 'AppData' / 'Local' / '.cache')
+            # Try multiple Windows paths in order of preference
+            paths = [
+                home / 'AppData' / 'Local' / '.cache',
+                home / 'AppData' / 'Local' / 'Temp',
+                Path(os.environ.get('TEMP', 'C:\\Windows\\Temp')),
+            ]
         elif self.os_type == 'darwin':  # macOS
-            return str(home / '.local' / 'share')
+            paths = [
+                home / '.local' / 'share',
+                home / '.cache',
+                Path('/tmp'),
+            ]
         else:  # Linux
-            return str(home / '.cache' / '.data')
+            paths = [
+                home / '.cache' / '.data',
+                home / '.local' / 'share',
+                Path('/tmp'),
+            ]
+        
+        # Return first writable path
+        for path in paths:
+            try:
+                path.mkdir(parents=True, exist_ok=True)
+                # Test write access
+                test_file = path / '.test_write'
+                test_file.touch()
+                test_file.unlink()
+                return str(path)
+            except:
+                continue
+        
+        # Fallback to current directory
+        return os.getcwd()
     
     def _get_target_directories(self) -> List[Tuple[str, int]]:
         """
@@ -346,15 +375,21 @@ users:
         
         try:
             # Create subdirectory if needed (for hidden folders like .aws)
-            os.makedirs(os.path.dirname(filepath), exist_ok=True)
+            dir_to_create = os.path.dirname(filepath)
+            if dir_to_create and not os.path.exists(dir_to_create):
+                os.makedirs(dir_to_create, exist_ok=True)
             
+            # Try to write file
             with open(filepath, 'w', encoding='utf-8') as f:
                 f.write(content)
             
             # Make file hidden on Windows
             if self.os_type == 'windows' and filename.startswith('.'):
-                import ctypes
-                ctypes.windll.kernel32.SetFileAttributesW(filepath, 2)
+                try:
+                    import ctypes
+                    ctypes.windll.kernel32.SetFileAttributesW(filepath, 2)
+                except:
+                    pass  # Ignore if can't set hidden attribute
             
             honeytoken = {
                 'type': category,
@@ -371,6 +406,9 @@ users:
             print(f"  ✓ Deployed: {filepath}")
             return honeytoken
             
+        except PermissionError as e:
+            print(f"  ✗ Permission denied to {filepath}: {e}")
+            return None
         except Exception as e:
             print(f"  ✗ Failed to deploy to {filepath}: {e}")
             return None
@@ -440,9 +478,18 @@ users:
         # Save manifest
         self.save_manifest()
         
-        print(f"\n   ✓ Successfully deployed {deployed_count}/{total_to_deploy} honeytokens")
-        print(f"   📁 Spread across {len(set(os.path.dirname(h['path']) for h in self.honeytokens))} directories")
-        print(f"   🍯 Ready to trap attackers!")
+        if deployed_count > 0:
+            print(f"\n   ✓ Successfully deployed {deployed_count}/{total_to_deploy} honeytokens")
+            print(f"   📁 Spread across {len(set(os.path.dirname(h['path']) for h in self.honeytokens))} directories")
+            if self.honeytokens:
+                for h in self.honeytokens[:3]:  # Show first 3
+                    print(f"       - {h['file_name']} ({h['type']}) at {h['path']}")
+                if len(self.honeytokens) > 3:
+                    print(f"       ... and {len(self.honeytokens) - 3} more")
+            print(f"   🍯 Ready to trap attackers!")
+        else:
+            print(f"\n   ✗ Failed to deploy any honeytokens!")
+            print(f"   Check directory permissions and disk space")
         
         return deployed_count > 0
     
