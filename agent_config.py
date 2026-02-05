@@ -12,7 +12,12 @@ from pathlib import Path
 from typing import Dict, Optional
 import requests
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    filename=str(Path(__file__).resolve().parent / "agent.log"),
+    filemode="a",
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
 logger = logging.getLogger("AgentConfig")
 
 
