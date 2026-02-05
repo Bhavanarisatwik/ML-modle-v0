@@ -117,6 +117,17 @@ def find_python():
     return None
 
 
+def get_pythonw(python_cmd: str) -> str:
+    """Get pythonw.exe path if available, fallback to python.exe"""
+    if not python_cmd:
+        return "pythonw.exe"
+    if python_cmd.lower().endswith("python.exe"):
+        pythonw = python_cmd[:-10] + "pythonw.exe"
+        if os.path.exists(pythonw):
+            return pythonw
+    return python_cmd
+
+
 def install_packages(python_cmd):
     """Install required Python packages"""
     try:
@@ -140,6 +151,35 @@ def write_config(config_data):
     with open(config_path, 'w', encoding='utf-8') as f:
         json.dump(config_data, f, indent=2)
     return True
+
+
+def register_scheduled_task(pythonw_cmd: str) -> bool:
+    """Create scheduled task to run agent in background"""
+    try:
+        task_name = "DecoyVerseAgent"
+        agent_path = os.path.join(INSTALL_DIR, "agent.py")
+        # Delete old task if exists
+        subprocess.run([
+            "schtasks", "/Delete", "/TN", task_name, "/F"
+        ], capture_output=True)
+
+        # Create task to run at logon and startup
+        create_cmd = (
+            f"schtasks /Create /TN {task_name} /TR \"\"{pythonw_cmd}\" \"{agent_path}\"\" "
+            f"/SC ONLOGON /RL HIGHEST /F"
+        )
+        subprocess.run(create_cmd, shell=True, check=True, capture_output=True)
+
+        # Add startup trigger (separate trigger)
+        create_startup = (
+            f"schtasks /Create /TN {task_name} /TR \"\"{pythonw_cmd}\" \"{agent_path}\"\" "
+            f"/SC ONSTART /RL HIGHEST /F"
+        )
+        subprocess.run(create_startup, shell=True, check=True, capture_output=True)
+        return True
+    except Exception as e:
+        print_error(f"Failed to create scheduled task: {e}")
+        return False
 
 
 def get_config_interactive():
@@ -247,7 +287,9 @@ def main():
         print("      Please install Python from https://python.org")
         input("\nPress Enter to exit...")
         return
+    pythonw_cmd = get_pythonw(python_cmd)
     print_success(f"Found: {python_cmd}")
+    print_success(f"Background runner: {pythonw_cmd}")
     
     # Step 3: Write config
     print_step(3, total_steps, "Writing agent configuration...")
@@ -275,25 +317,28 @@ def main():
     else:
         print_error("Some packages may have failed to install")
     
-    # Step 6: Run agent
+    # Step 6: Register auto-start task and run agent
     if args.no_run:
-        print_step(6, total_steps, "Installation complete!")
+        print_step(6, total_steps, "Registering auto-start task...")
+        register_scheduled_task(pythonw_cmd)
+        print_success("Auto-start enabled")
         print()
         print("=" * 55)
         print("  To start the agent, run:")
         print(f"    cd {INSTALL_DIR}")
-        print("    python agent.py")
+        print("    pythonw agent.py")
         print("=" * 55)
     else:
-        print_step(6, total_steps, "Starting DecoyVerse agent...")
+        print_step(6, total_steps, "Registering auto-start task...")
+        if register_scheduled_task(pythonw_cmd):
+            print_success("Auto-start enabled")
+        print_step(6, total_steps, "Starting DecoyVerse agent in background...")
         print()
         print("=" * 55)
         print()
-        
         try:
-            subprocess.run([python_cmd, "agent.py"], cwd=INSTALL_DIR)
-        except KeyboardInterrupt:
-            print("\n\nAgent stopped by user.")
+            subprocess.run(["schtasks", "/Run", "/TN", "DecoyVerseAgent"], check=True)
+            print_success("Agent started in background")
         except Exception as e:
             print_error(f"Failed to run agent: {e}")
     
@@ -301,8 +346,7 @@ def main():
     print("=" * 55)
     print("  Installation complete!")
     print("  To restart the agent:")
-    print(f"    cd {INSTALL_DIR}")
-    print("    python agent.py")
+    print("    Start-ScheduledTask -TaskName \"DecoyVerseAgent\"")
     print("=" * 55)
     print()
     input("Press Enter to exit...")
