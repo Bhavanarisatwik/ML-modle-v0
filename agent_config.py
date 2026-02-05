@@ -278,10 +278,22 @@ class AgentRegistration:
             
             url = f"{self.backend_url}/agent/register-decoys"
             
-            logger.info(f"📤 Registering {len(decoys)} deployed decoys...")
+            # Map credential types to 'honeytoken' for backend registration
+            credential_types = {'credentials', 'cloud', 'database', 'api', 'ssh', 'env', 'json', 'kubeconfig'}
+            processed_decoys = []
+            
+            for decoy in decoys:
+                decoy_copy = decoy.copy()
+                # If it's a credential-type decoy, mark it as honeytoken
+                if decoy_copy.get('type') in credential_types:
+                    decoy_copy['type'] = 'honeytoken'
+                    decoy_copy['is_credential'] = True
+                processed_decoys.append(decoy_copy)
+            
+            logger.info(f"📤 Registering {len(processed_decoys)} deployed decoys...")
             response = requests.post(
                 url,
-                json=decoys,
+                json=processed_decoys,
                 headers=headers,
                 timeout=15
             )
