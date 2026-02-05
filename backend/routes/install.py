@@ -333,29 +333,34 @@ Write-Status "      Dependencies installed" "Green"
 Write-Status "[6/7] Setting up auto-start on boot..." "Cyan"
 $taskName = "DecoyVerseAgent"
 $pythonPath = (Get-Command $pythonCmd).Source
-$taskAction = New-ScheduledTaskAction -Execute $pythonPath -Argument "agent.py" -WorkingDirectory $installDir
-$taskTrigger = New-ScheduledTaskTrigger -AtLogon
-$taskSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
+# Use pythonw.exe for hidden background execution (no console window)
+$pythonwPath = $pythonPath -replace 'python\.exe$', 'pythonw.exe'
+if (-not (Test-Path $pythonwPath)) {{ $pythonwPath = $pythonPath }}
+$taskAction = New-ScheduledTaskAction -Execute $pythonwPath -Argument "agent.py" -WorkingDirectory $installDir
+$taskTriggerLogon = New-ScheduledTaskTrigger -AtLogon
+$taskTriggerStartup = New-ScheduledTaskTrigger -AtStartup
+$taskSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit (New-TimeSpan -Seconds 0)
 $taskPrincipal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Highest
 
 # Remove old task if exists
 Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
 
-# Create new task
-Register-ScheduledTask -TaskName $taskName -Action $taskAction -Trigger $taskTrigger -Settings $taskSettings -Principal $taskPrincipal -Description "DecoyVerse security monitoring agent" | Out-Null
-Write-Status "      Auto-start enabled (runs at login)" "Green"
+# Create new task with both triggers
+Register-ScheduledTask -TaskName $taskName -Action $taskAction -Trigger $taskTriggerLogon,$taskTriggerStartup -Settings $taskSettings -Principal $taskPrincipal -Description "DecoyVerse security monitoring agent" | Out-Null
+Write-Status "      Auto-start enabled (runs at login and startup)" "Green"
 
 # Step 7: Start agent in background
 Write-Status "[7/7] Starting agent in background..." "Cyan"
 Set-Location $installDir
 
-# Start hidden Python process
+# Start hidden Python process using pythonw.exe (windowless)
 $processInfo = New-Object System.Diagnostics.ProcessStartInfo
-$processInfo.FileName = $pythonPath
+$processInfo.FileName = $pythonwPath
 $processInfo.Arguments = "agent.py"
 $processInfo.WorkingDirectory = $installDir
 $processInfo.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
 $processInfo.CreateNoWindow = $true
+$processInfo.UseShellExecute = $false
 
 $process = [System.Diagnostics.Process]::Start($processInfo)
 Start-Sleep -Seconds 3
