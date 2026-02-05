@@ -62,6 +62,7 @@ class SmartHoneytokenDeployer:
         self.os_type = platform.system().lower()
         self.base_dir = base_dir or self._get_default_base_dir()
         self.honeytokens: List[Dict] = []
+        self.decoys: List[Dict] = []
         self.deployed_paths: List[str] = []
         
     def _get_default_base_dir(self) -> str:
@@ -392,12 +393,13 @@ users:
                     pass  # Ignore if can't set hidden attribute
             
             honeytoken = {
-                'type': category,
+                'type': 'honeytoken',
                 'file_name': filename,
                 'path': filepath,
                 'size': len(content),
                 'created': datetime.now().isoformat(),
-                'category': category
+                'category': category,
+                'token_type': category
             }
             
             self.honeytokens.append(honeytoken)
@@ -412,6 +414,57 @@ users:
         except Exception as e:
             print(f"  ✗ Failed to deploy to {filepath}: {e}")
             return None
+
+    def deploy_file_decoy(self, directory: str) -> Dict:
+        """Deploy a single file decoy to a directory"""
+        decoy_names = [
+            'credentials.txt', 'employee_list.xlsx', 'passwords_backup.txt',
+            'financial_report_2025.xlsx', 'production.env', 'db_dump.sql',
+            'ssh_keys_backup.zip', 'api_keys.json', 'config_backup.yaml'
+        ]
+        filename = random.choice(decoy_names)
+        filepath = os.path.join(directory, filename)
+
+        # Skip if file already exists or path already used
+        if os.path.exists(filepath) or filepath in self.deployed_paths:
+            filename = f"{Path(filename).stem}_{random.randint(1000,9999)}{Path(filename).suffix}"
+            filepath = os.path.join(directory, filename)
+
+        content = f"""# Decoy File - Do Not Use
+# Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+This is a decoy file for security monitoring.
+If accessed, an alert will be triggered.
+"""
+
+        try:
+            dir_to_create = os.path.dirname(filepath)
+            if dir_to_create and not os.path.exists(dir_to_create):
+                os.makedirs(dir_to_create, exist_ok=True)
+
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write(content)
+
+            decoy = {
+                'type': 'file',
+                'file_name': filename,
+                'path': filepath,
+                'size': len(content),
+                'created': datetime.now().isoformat(),
+                'category': 'file'
+            }
+
+            self.decoys.append(decoy)
+            self.deployed_paths.append(filepath)
+
+            print(f"  ✓ Deployed decoy: {filepath}")
+            return decoy
+        except PermissionError as e:
+            print(f"  ✗ Permission denied to {filepath}: {e}")
+            return None
+        except Exception as e:
+            print(f"  ✗ Failed to deploy decoy to {filepath}: {e}")
+            return None
     
     def setup_all(self, deployment_config: dict = None) -> bool:
         """
@@ -425,21 +478,22 @@ users:
             }
         """
         print("\n" + "="*60)
-        print("🍯 SMART HONEYTOKEN DEPLOYMENT")
+        print("🪤 SMART DECOY + HONEYTOKEN DEPLOYMENT")
         print("="*60)
         print(f"   OS: {self.os_type}")
         
         # Check if already deployed
         manifest_file = os.path.join(self.base_dir, ".honeytoken_manifest.json")
         if os.path.exists(manifest_file):
-            print("   ℹ️  Honeytokens already deployed (manifest found)")
+            print("   ℹ️  Decoys/Honeytokens already deployed (manifest found)")
             try:
                 with open(manifest_file, 'r') as f:
                     manifest = json.load(f)
                     self.honeytokens = manifest.get('honeytokens', [])
-                    deployed_count = len(self.honeytokens)
-                    print(f"   ✓ Loaded {deployed_count} existing honeytokens from manifest")
-                    print("   ⏭️  Skipping deployment (no duplicate honeytokens)")
+                    self.decoys = manifest.get('decoys', [])
+                    deployed_count = len(self.honeytokens) + len(self.decoys)
+                    print(f"   ✓ Loaded {len(self.decoys)} decoys and {len(self.honeytokens)} honeytokens from manifest")
+                    print("   ⏭️  Skipping deployment (no duplicates)")
                     return deployed_count > 0
             except Exception as e:
                 print(f"   Warning: Could not load manifest: {e}")
@@ -453,7 +507,7 @@ users:
             initial_honeytokens = deployment_config.get('initial_honeytokens', 5)
         
         total_to_deploy = initial_decoys + initial_honeytokens
-        print(f"   Deploying: {total_to_deploy} honeytokens ({initial_decoys} decoys + {initial_honeytokens} tokens)")
+        print(f"   Deploying: {initial_decoys} decoys + {initial_honeytokens} honeytokens")
         
         # Get target directories
         targets = self._get_target_directories()
@@ -471,10 +525,24 @@ users:
         # Categories to deploy (weighted by importance)
         categories = ['cloud', 'cloud', 'database', 'api', 'ssh', 'credentials', 'env']
         
-        print("\n   Deploying honeytokens...")
+        print("\n   Deploying file decoys...")
         deployed_count = 0
+
+        for _ in range(initial_decoys):
+            if targets:
+                weights = [t[1] for t in targets]
+                directory = random.choices(targets, weights=weights, k=1)[0][0]
+            else:
+                directory = self.base_dir
+
+            result = self.deploy_file_decoy(directory)
+            if result:
+                deployed_count += 1
+
+        print("\n   Deploying honeytokens...")
+        honeytoken_count = 0
         
-        for i in range(total_to_deploy):
+        for _ in range(initial_honeytokens):
             # Select directory (weighted by priority)
             if targets:
                 # Bias toward high-priority directories
@@ -488,14 +556,14 @@ users:
             
             result = self.deploy_honeytoken(directory, category)
             if result:
-                deployed_count += 1
+                honeytoken_count += 1
         
         # Save manifest
         self.save_manifest()
         
-        if deployed_count > 0:
-            print(f"\n   ✓ Successfully deployed {deployed_count}/{total_to_deploy} honeytokens")
-            print(f"   📁 Spread across {len(set(os.path.dirname(h['path']) for h in self.honeytokens))} directories")
+        if deployed_count > 0 or honeytoken_count > 0:
+            print(f"\n   ✓ Successfully deployed {deployed_count} decoys and {honeytoken_count} honeytokens")
+            print(f"   📁 Spread across {len(set(os.path.dirname(h['path']) for h in self.honeytokens + self.decoys))} directories")
             if self.honeytokens:
                 for h in self.honeytokens[:3]:  # Show first 3
                     print(f"       - {h['file_name']} ({h['type']}) at {h['path']}")
@@ -505,8 +573,8 @@ users:
         else:
             print(f"\n   ✗ Failed to deploy any honeytokens!")
             print(f"   Check directory permissions and disk space")
-        
-        return deployed_count > 0
+
+        return (deployed_count + honeytoken_count) > 0
     
     def save_manifest(self):
         """Save deployment manifest for tracking"""
@@ -518,7 +586,8 @@ users:
         manifest = {
             "deployed_at": datetime.now().isoformat(),
             "os": self.os_type,
-            "count": len(self.honeytokens),
+            "count": len(self.honeytokens) + len(self.decoys),
+            "decoys": self.decoys,
             "honeytokens": self.honeytokens
         }
         
@@ -536,13 +605,14 @@ users:
     
     def get_deployed_decoys(self) -> List[Dict]:
         """Return list of deployed decoys for backend registration"""
+        all_items = self.decoys + self.honeytokens
         return [{
             "file_name": h["file_name"],
             "file_path": h["path"],
             "type": h["type"],
             "status": "active",
             "auto_deployed": True
-        } for h in self.honeytokens]
+        } for h in all_items]
     
     def list_honeytokens(self):
         """Display deployed honeytokens"""
