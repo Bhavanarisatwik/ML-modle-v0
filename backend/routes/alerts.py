@@ -206,3 +206,26 @@ async def debug_decoys():
         }
     except Exception as e:
         return {"error": str(e)}
+
+
+@router.get("/debug-nodes")
+async def debug_nodes():
+    """Debug: List all nodes in database (no auth required)"""
+    try:
+        if db_service.db is None:
+            return {"error": "db is None"}
+        
+        from backend.services.db_service import NODES_COLLECTION
+        cursor = db_service.db[NODES_COLLECTION].find({})
+        nodes = await cursor.to_list(length=100)
+        
+        # Convert ObjectId to string
+        for n in nodes:
+            n["_id"] = str(n["_id"])
+        
+        return {
+            "count": len(nodes),
+            "nodes": nodes
+        }
+    except Exception as e:
+        return {"error": str(e)}
