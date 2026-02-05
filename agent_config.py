@@ -260,12 +260,22 @@ def ensure_agent_registered(config: AgentConfig) -> bool:
         
         logger.info(f"✓ Agent registered as: {node_id}")
         
-        # Send heartbeat
+        # CRITICAL: Send both registration AND heartbeat on startup
+        # This ensures node status changes from "installer_ready" to "active"
         registration = AgentRegistration(config)
-        registration.send_heartbeat(
-            node_id,
-            node_api_key
-        )
+        
+        # First: Register (updates to "online")
+        try:
+            registration.register(node_id, node_api_key)
+        except Exception as e:
+            logger.warning(f"Registration call failed (may already be registered): {e}")
+        
+        # Second: Send heartbeat (updates to "active" and sets IP)
+        heartbeat_success = registration.send_heartbeat(node_id, node_api_key)
+        if heartbeat_success:
+            logger.info(f"✓ Heartbeat sent - node is now active")
+        else:
+            logger.warning(f"⚠️ Heartbeat failed - check network connection")
         
         return True
     else:

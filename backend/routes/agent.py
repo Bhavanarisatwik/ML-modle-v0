@@ -237,10 +237,18 @@ async def agent_heartbeat(
         
         # Update node status to active and update last_seen + IP address
         await db_service.update_node_status(node_id, "active")
-        await db_service.update_node(node_id, {
+        update_data = {
             "last_seen": datetime.utcnow().isoformat(),
             "ip_address": client_ip
-        })
+        }
+        
+        # If node was in installer_ready state, mark as fully active now
+        node = await db_service.get_node_by_id(node_id)
+        if node and node.get("status") == "installer_ready":
+            update_data["agent_status"] = "active"
+            logger.info(f"🎉 Node {node_id} activated from installer_ready state")
+        
+        await db_service.update_node(node_id, update_data)
         
         logger.info(f"💓 Heartbeat from node: {node_id} (IP: {client_ip})")
         

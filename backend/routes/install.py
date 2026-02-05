@@ -176,12 +176,51 @@ function Write-Status($message, $color = "White") {{
     if (-not $Silent) {{ Write-Host $message -ForegroundColor $color }}
 }}
 
+# Self-unblock this script (prevents "file is blocked" issues)
+Unblock-File -Path $PSCommandPath -ErrorAction SilentlyContinue
+
 # Banner
 Write-Status "============================================" "Cyan"
 Write-Status "  DecoyVerse Agent - Complete Installation" "Yellow"
 Write-Status "  Node: $nodeName" "Green"
 Write-Status "============================================" "Cyan"
 Write-Status ""
+
+# CRITICAL: Check if agent already installed
+if (Test-Path "$installDir\\agent.py") {{
+    Write-Status "" "Yellow"
+    Write-Status "============================================" "Yellow"
+    Write-Status "  WARNING: Agent Already Installed!" "Yellow"
+    Write-Status "============================================" "Yellow"
+    Write-Status "" "Yellow"
+    Write-Status "An agent is already running on this system." "Yellow"
+    Write-Status "Installing a second agent may cause conflicts!" "Yellow"
+    Write-Status "" "Yellow"
+    Write-Status "Current installation: $installDir" "Gray"
+    Write-Status "" "Yellow"
+    Write-Status "Options:" "Cyan"
+    Write-Status "  1. Exit and use existing agent" "Gray"
+    Write-Status "  2. Continue anyway (may cause issues)" "Gray"
+    Write-Status "" "Yellow"
+    
+    if (-not $Silent) {{
+        $response = Read-Host "Continue installation? (y/N)"
+        if ($response -ne 'y' -and $response -ne 'Y') {{
+            Write-Status "Installation cancelled." "Yellow"
+            pause
+            exit 0
+        }}
+        Write-Status "" "Yellow"
+        Write-Status "Proceeding with installation..." "Yellow"
+        Write-Status "Previous agent will be stopped and replaced." "Yellow"
+        Write-Status "" "Yellow"
+        
+        # Stop existing agent processes
+        Write-Status "Stopping existing agent processes..." "Yellow"
+        Get-Process -Name python -ErrorAction SilentlyContinue | Where-Object {{$_.Path -like "*DecoyVerse*"}} | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
+    }}
+}}
 
 # Check and request admin if needed
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
@@ -335,17 +374,39 @@ if (-not $Silent) {{
 
 ## Quick Install (Windows)
 
-### One-Click Installation
+### IMPORTANT: If you see "Cannot be loaded" error:
+Windows may block downloaded PowerShell scripts. To fix:
+
+**Option 1 - One Command (Recommended):**
 1. Extract this ZIP file
-2. Right-click `install.ps1` → "Run with PowerShell"
-3. Click "Yes" when prompted for admin access
-4. Wait for installation to complete
+2. Open PowerShell in the extracted folder
+3. Run this command:
+```powershell
+Unblock-File .\\install.ps1; .\\install.ps1
+```
+
+**Option 2 - GUI Method:**
+1. Right-click `install.ps1` → Properties
+2. Check "Unblock" at the bottom → Click OK
+3. Right-click `install.ps1` → "Run with PowerShell"
+
+**Option 3 - Bypass Method:**
+```powershell
+powershell -ExecutionPolicy Bypass -File .\\install.ps1
+```
+
+### After Installation
 
 **That's it!** The agent will:
 - Install to C:\\DecoyVerse
 - Deploy honeytokens automatically
 - Run in the background
 - Start automatically on boot
+- **Show up in dashboard within 1 minute**
+
+### ⚠️ IMPORTANT: Only ONE agent per system!
+If you already have an agent installed, the installer will warn you.
+Running multiple agents on the same system causes conflicts!
 
 ## What Gets Installed?
 
