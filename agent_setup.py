@@ -429,6 +429,21 @@ users:
         print("="*60)
         print(f"   OS: {self.os_type}")
         
+        # Check if already deployed
+        manifest_file = os.path.join(self.base_dir, ".honeytoken_manifest.json")
+        if os.path.exists(manifest_file):
+            print("   ℹ️  Honeytokens already deployed (manifest found)")
+            try:
+                with open(manifest_file, 'r') as f:
+                    manifest = json.load(f)
+                    self.honeytokens = manifest.get('honeytokens', [])
+                    deployed_count = len(self.honeytokens)
+                    print(f"   ✓ Loaded {deployed_count} existing honeytokens from manifest")
+                    print("   ⏭️  Skipping deployment (no duplicate honeytokens)")
+                    return deployed_count > 0
+            except Exception as e:
+                print(f"   Warning: Could not load manifest: {e}")
+        
         # Parse config
         initial_decoys = 3
         initial_honeytokens = 5
