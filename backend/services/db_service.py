@@ -180,6 +180,20 @@ class DatabaseService:
         except Exception as e:
             logger.error(f"Error updating node last_seen: {e}")
             return False
+
+    async def update_node(self, node_id: str, update_data: Dict[str, Any]) -> bool:
+        """Update node with arbitrary fields"""
+        if not self._ensure_db():
+            return False
+        try:
+            await self.db[NODES_COLLECTION].update_one(
+                {"node_id": node_id},
+                {"$set": update_data}
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Error updating node: {e}")
+            return False
     
     async def delete_node(self, node_id: str) -> bool:
         """Delete node"""
@@ -189,6 +203,26 @@ class DatabaseService:
             return True
         except Exception as e:
             logger.error(f"Error deleting node: {e}")
+            return False
+
+    async def request_node_uninstall(self, node_id: str) -> bool:
+        """Mark node for uninstall on next heartbeat"""
+        if not self._ensure_db():
+            return False
+        try:
+            await self.db[NODES_COLLECTION].update_one(
+                {"node_id": node_id},
+                {
+                    "$set": {
+                        "uninstall_requested": True,
+                        "uninstall_requested_at": datetime.utcnow().isoformat(),
+                        "status": "uninstall_requested"
+                    }
+                }
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Error requesting uninstall for node {node_id}: {e}")
             return False
     
     # ==================== DECOY OPERATIONS ====================
@@ -221,6 +255,27 @@ class DatabaseService:
         except Exception as e:
             logger.error(f"Error getting decoys: {e}")
             return []
+
+    async def delete_decoys_by_node(self, node_id: str) -> bool:
+        """Delete all decoys for a node"""
+        if not self._ensure_db():
+            return False
+        try:
+            await self.db[DECOYS_COLLECTION].delete_many({"node_id": node_id})
+            return True
+        except Exception as e:
+            logger.error(f"Error deleting decoys for node {node_id}: {e}")
+            return False
+
+    async def delete_node_and_decoys(self, node_id: str) -> bool:
+        """Delete node and all related decoys"""
+        try:
+            await self.delete_decoys_by_node(node_id)
+            await self.delete_node(node_id)
+            return True
+        except Exception as e:
+            logger.error(f"Error deleting node and decoys for {node_id}: {e}")
+            return False
     
     async def save_deployed_decoy(self, decoy_data: Dict[str, Any]) -> Optional[str]:
         """Save a deployed decoy from agent (with file_path)"""

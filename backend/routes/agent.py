@@ -235,15 +235,22 @@ async def agent_heartbeat(
         else:
             raise HTTPException(status_code=401, detail="No credentials provided")
         
-        # Update node status to active and update last_seen + IP address
-        await db_service.update_node_status(node_id, "active")
+        # Fetch node for uninstall status
+        node = await db_service.get_node_by_id(node_id)
+        uninstall_requested = bool(node and node.get("uninstall_requested"))
+
+        # Update node status and update last_seen + IP address
+        if uninstall_requested:
+            await db_service.update_node_status(node_id, "uninstall_requested")
+        else:
+            await db_service.update_node_status(node_id, "active")
+
         update_data = {
             "last_seen": datetime.utcnow().isoformat(),
             "ip_address": client_ip
         }
         
         # If node was in installer_ready state, mark as fully active now
-        node = await db_service.get_node_by_id(node_id)
         if node and node.get("status") == "installer_ready":
             update_data["agent_status"] = "active"
             logger.info(f"🎉 Node {node_id} activated from installer_ready state")
@@ -255,13 +262,56 @@ async def agent_heartbeat(
         return {
             "status": "success",
             "message": "Heartbeat received",
-            "node_id": node_id
+            "node_id": node_id,
+            "uninstall": uninstall_requested
         }
     
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error processing heartbeat: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/agent/uninstall-complete")
+async def agent_uninstall_complete(
+    x_node_api_key: Optional[str] = Header(None, alias="X-Node-API-Key"),
+    x_node_id: Optional[str] = Header(None),
+    x_node_key: Optional[str] = Header(None)
+):
+    """
+    Agent reports uninstall complete.
+
+    Deletes node and related decoys from database.
+    """
+    try:
+        node_id = None
+
+        if x_node_api_key:
+            node = await db_service.get_node_by_api_key(x_node_api_key)
+            if node:
+                node_id = node["node_id"]
+            else:
+                raise HTTPException(status_code=401, detail="Invalid API key")
+        elif AUTH_ENABLED:
+            try:
+                node = await validate_node_access(x_node_id, x_node_key)
+                node_id = node["node_id"]
+            except HTTPException:
+                raise HTTPException(status_code=401, detail="Invalid node credentials")
+        else:
+            raise HTTPException(status_code=401, detail="No credentials provided")
+
+        await db_service.delete_node_and_decoys(node_id)
+
+        return {
+            "status": "success",
+            "message": f"Node {node_id} deleted after uninstall"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error processing uninstall complete: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

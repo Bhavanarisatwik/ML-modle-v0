@@ -6,6 +6,11 @@ Orchestrates honeytoken deployment, monitoring, and alerting
 import os
 import sys
 import time
+import platform
+import subprocess
+import tempfile
+import shutil
+from pathlib import Path
 from agent_setup import HoneytokenSetup
 from file_monitor import FileMonitor
 from alert_sender import AlertSender
@@ -26,6 +31,7 @@ class DeceptionAgent:
         self.sender = AlertSender(api_url=ml_service_url)
         self.registration = AgentRegistration(self.config)
         self.running = False
+        self.last_heartbeat = 0.0
     
     def setup_honeytokens(self) -> bool:
         """Setup honeytokens based on deployment config"""
@@ -92,6 +98,50 @@ class DeceptionAgent:
         if alerts and self.sender.check_api_health():
             for alert in alerts:
                 self.sender.send_alert(alert)
+
+    def heartbeat_cycle(self):
+        """Send periodic heartbeat and handle uninstall requests"""
+        node_id = self.config.get_node_id()
+        node_api_key = self.config.get_node_api_key()
+        if not node_id or not node_api_key:
+            return
+
+        result = self.registration.send_heartbeat(node_id, node_api_key)
+        if result.get("uninstall"):
+            print("\n⚠️  Uninstall requested by dashboard. Removing agent...")
+            self.handle_uninstall(node_id, node_api_key)
+            self.running = False
+
+    def handle_uninstall(self, node_id: str, node_api_key: str):
+        """Remove agent from the system and notify backend"""
+        try:
+            self.registration.send_uninstall_complete(node_id, node_api_key)
+        except Exception:
+            pass
+
+        install_dir = Path(__file__).resolve().parent
+        system = platform.system().lower()
+
+        if system == "windows":
+            script = f"""@echo off
+schtasks /Delete /TN DecoyVerseAgent /F >nul 2>&1
+timeout /t 3 /nobreak >nul
+rd /s /q \"{install_dir}\"
+"""
+            temp_path = Path(tempfile.gettempdir()) / "decoyverse_uninstall.cmd"
+            temp_path.write_text(script, encoding="utf-8")
+            try:
+                subprocess.Popen(
+                    ["cmd.exe", "/c", str(temp_path)],
+                    creationflags=subprocess.CREATE_NO_WINDOW
+                )
+            except Exception:
+                pass
+        else:
+            try:
+                shutil.rmtree(install_dir, ignore_errors=True)
+            except Exception:
+                pass
     
     def start(self, interval: int = 5, check_backend: bool = True):
         """
@@ -136,6 +186,10 @@ class DeceptionAgent:
         
         try:
             while self.running:
+                now = time.time()
+                if now - self.last_heartbeat >= 30:
+                    self.last_heartbeat = now
+                    self.heartbeat_cycle()
                 self.run_once()
                 time.sleep(interval)
         except KeyboardInterrupt:

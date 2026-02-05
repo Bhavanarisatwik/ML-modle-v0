@@ -172,7 +172,7 @@ class AgentRegistration:
             logger.error(f"✗ Registration error: {e}")
             return False
     
-    def send_heartbeat(self, node_id: str, node_api_key: str) -> bool:
+    def send_heartbeat(self, node_id: str, node_api_key: str) -> dict:
         """
         Send heartbeat to backend (keep-alive)
         
@@ -181,7 +181,7 @@ class AgentRegistration:
             node_api_key: Node API key from config
         
         Returns:
-            True if heartbeat successful
+            Dict with success and uninstall flag
         """
         try:
             system_info = AgentConfig.get_system_info()
@@ -206,12 +206,40 @@ class AgentRegistration:
                 headers=headers,
                 timeout=10
             )
-            
-            return response.status_code in [200, 201]
+
+            if response.status_code in [200, 201]:
+                data = response.json() if response.content else {}
+                return {
+                    "success": True,
+                    "uninstall": bool(data.get("uninstall"))
+                }
+
+            return {
+                "success": False,
+                "uninstall": False
+            }
         
         except Exception as e:
             logger.warning(f"Heartbeat failed: {e}")
-            return False
+            return {"success": False, "uninstall": False}
++
++    def send_uninstall_complete(self, node_id: str, node_api_key: str) -> bool:
++        """
++        Notify backend that uninstall has completed.
++        """
++        try:
++            headers = {
++                "Content-Type": "application/json",
++                "X-Node-API-Key": node_api_key,
++                "X-Node-Id": node_id,
++                "X-Node-Key": node_api_key,
++            }
++            url = f"{self.backend_url}/agent/uninstall-complete"
++            response = requests.post(url, headers=headers, timeout=10)
++            return response.status_code in [200, 201]
++        except Exception as e:
++            logger.warning(f"Uninstall complete notification failed: {e}")
++            return False
     
     def register_deployed_decoys(self, node_id: str, node_api_key: str, decoys: list) -> bool:
         """
@@ -291,11 +319,11 @@ def ensure_agent_registered(config: AgentConfig) -> bool:
             logger.warning(f"Registration call failed (may already be registered): {e}")
         
         # Second: Send heartbeat (updates to "active" and sets IP)
-        heartbeat_success = registration.send_heartbeat(node_id, node_api_key)
-        if heartbeat_success:
-            logger.info(f"✓ Heartbeat sent - node is now active")
+        heartbeat_result = registration.send_heartbeat(node_id, node_api_key)
+        if heartbeat_result.get("success"):
+            logger.info("✓ Heartbeat sent - node is now active")
         else:
-            logger.warning(f"⚠️ Heartbeat failed - check network connection")
+            logger.warning("⚠️ Heartbeat failed - check network connection")
         
         return True
     else:

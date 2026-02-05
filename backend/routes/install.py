@@ -195,7 +195,7 @@ if (Test-Path "$installDir\\agent.py") {{
     if (Test-Path $existingConfigPath) {{
         try {{
             $existingConfig = Get-Content $existingConfigPath | ConvertFrom-Json
-            $existingNodeName = $existingConfig.node_name -or "Unknown"
+            $existingNodeName = $existingConfig.node_name
         }} catch {{
             $existingNodeName = "Unknown"
         }}
@@ -207,13 +207,17 @@ if (Test-Path "$installDir\\agent.py") {{
     
     Write-Status "" "Yellow"
     Write-Status "============================================" "Yellow"
-    Write-Status "  ⚠️  AGENT ALREADY INSTALLED!" "Yellow"
+    Write-Status "  AGENT ALREADY INSTALLED!" "Yellow"
     Write-Status "============================================" "Yellow"
     Write-Status "" "Yellow"
     Write-Status "Existing agent found:" "Yellow"
     Write-Status "  Node Name: $existingNodeName" "Cyan"
     Write-Status "  Location: $installDir" "Gray"
-    Write-Status "  Status: $(if ($isRunning) {{ 'RUNNING' }} else {{ 'INSTALLED (Not Running)' }})" "$(if ($isRunning) {{ 'Green' }} else {{ 'Yellow' }})"
+    if ($isRunning) {{
+        Write-Status "  Status: RUNNING" "Green"
+    }} else {{
+        Write-Status "  Status: INSTALLED (Not Running)" "Yellow"
+    }}
     Write-Status "" "Yellow"
     Write-Status "Installing a second agent will:" "Red"
     Write-Status "  - Stop the existing agent ($existingNodeName)" "Gray"
@@ -236,17 +240,14 @@ if (Test-Path "$installDir\\agent.py") {{
             exit 0
         }}
         Write-Status "" "Yellow"
-        Write-Status "🔄 Replacing agent..." "Yellow"
+        Write-Status "Replacing agent..." "Yellow"
         Write-Status "Stopping existing agent ($existingNodeName)..." "Yellow"
         
         # Stop existing agent processes
         Get-Process -Name python -ErrorAction SilentlyContinue | Where-Object {{$_.Path -like "*DecoyVerse*"}} | Stop-Process -Force -ErrorAction SilentlyContinue
         Start-Sleep -Seconds 2
-        Write-Status "✓ Existing agent stopped" "Green"
+        Write-Status "Existing agent stopped" "Green"
         Write-Status "" "Yellow"
-    }}
-}}
-        Start-Sleep -Seconds 2
     }}
 }}
 
