@@ -109,7 +109,8 @@ async def generate_installer(
     
     Creates a ZIP containing:
     - Pre-configured agent_config.json with node credentials
-    - PowerShell installation script
+    - PowerShell installation script (with auto-start on boot)
+    - Background runner script
     - Setup instructions
     
     Returns: ZIP file download
@@ -129,6 +130,9 @@ async def generate_installer(
         if AUTH_ENABLED and node.get("user_id") != user_id:
             raise HTTPException(status_code=403, detail="Permission denied")
         
+        initial_decoys = node.get("deployment_config", {}).get("initial_decoys", 3)
+        initial_honeytokens = node.get("deployment_config", {}).get("initial_honeytokens", 5)
+        
         # Create agent configuration
         agent_config = {
             "node_id": node["node_id"],
@@ -137,11 +141,11 @@ async def generate_installer(
             "os_type": node.get("os_type", "windows"),
             "backend_url": "https://ml-modle-v0-1.onrender.com/api",
             "ml_service_url": "https://ml-modle-v0-2.onrender.com",
-            "deployment_config": node.get("deployment_config", {
-                "initial_decoys": 3,
-                "initial_honeytokens": 5,
+            "deployment_config": {
+                "initial_decoys": initial_decoys,
+                "initial_honeytokens": initial_honeytokens,
                 "deploy_path": None
-            })
+            }
         }
         
         # Create in-memory ZIP
@@ -154,112 +158,176 @@ async def generate_installer(
                 json.dumps(agent_config, indent=2)
             )
             
-            # Add installation script (PowerShell)
-            install_script = f"""# DecoyVerse Agent Auto-Installer
+            # Main installation script
+            install_script = f'''# DecoyVerse Agent Installer - Complete Setup
 # Pre-configured for node: {node['name']}
+# This script installs and runs the agent in background with auto-start
 
-Write-Host "==========================================" -ForegroundColor Cyan
-Write-Host "  DecoyVerse Agent Installer" -ForegroundColor Yellow
-Write-Host "  Node: {node['name']}" -ForegroundColor Green
-Write-Host "==========================================" -ForegroundColor Cyan
-Write-Host ""
+param(
+    [switch]$Silent = $false
+)
 
-# Check admin privileges
-$isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+$ErrorActionPreference = "Continue"
+$installDir = "C:\\DecoyVerse"
+$nodeName = "{node['name']}"
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
+function Write-Status($message, $color = "White") {{
+    if (-not $Silent) {{ Write-Host $message -ForegroundColor $color }}
+}}
+
+# Banner
+Write-Status "============================================" "Cyan"
+Write-Status "  DecoyVerse Agent - Complete Installation" "Yellow"
+Write-Status "  Node: $nodeName" "Green"
+Write-Status "============================================" "Cyan"
+Write-Status ""
+
+# Check and request admin if needed
+$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {{
-    Write-Host "[!] Requesting Administrator privileges..." -ForegroundColor Yellow
+    Write-Status "[!] Requesting Administrator privileges..." "Yellow"
     Start-Process powershell.exe "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"" -Verb RunAs
     exit
 }}
 
-Write-Host "[OK] Running with Administrator privileges" -ForegroundColor Green
-Write-Host ""
+Write-Status "[OK] Administrator privileges confirmed" "Green"
+Write-Status ""
 
-# Installation directory
-$installDir = "C:\\DecoyVerse"
-
-# Step 1: Create directory
-Write-Host "[1/5] Creating installation directory..." -ForegroundColor Cyan
-New-Item -ItemType Directory -Force -Path $installDir | Out-Null
-Write-Host "      Created: $installDir" -ForegroundColor Green
+# Step 1: Create installation directory
+Write-Status "[1/7] Creating installation directory..." "Cyan"
+if (-not (Test-Path $installDir)) {{
+    New-Item -ItemType Directory -Path $installDir -Force | Out-Null
+}}
+Write-Status "      Path: $installDir" "Gray"
 
 # Step 2: Check Python
-Write-Host "[2/5] Checking Python installation..." -ForegroundColor Cyan
+Write-Status "[2/7] Checking Python installation..." "Cyan"
 $pythonCmd = $null
-$pythonPaths = @("python", "python3", "$env:LOCALAPPDATA\\Programs\\Python\\Python311\\python.exe", "$env:LOCALAPPDATA\\Programs\\Python\\Python310\\python.exe")
-
-foreach ($path in $pythonPaths) {{
+foreach ($cmd in @("python", "python3", "py")) {{
     try {{
-        $version = & $path --version 2>&1
-        if ($version -like "*Python 3*") {{
-            $pythonCmd = $path
-            Write-Host "      Found: $version" -ForegroundColor Green
+        $ver = & $cmd --version 2>&1
+        if ($ver -like "*Python 3*") {{
+            $pythonCmd = $cmd
+            Write-Status "      Found: $ver" "Green"
             break
         }}
     }} catch {{}}
 }}
 
 if (-not $pythonCmd) {{
-    Write-Host "      ERROR: Python 3.10+ not found!" -ForegroundColor Red
-    Write-Host "      Please install from https://python.org" -ForegroundColor Yellow
-    pause
+    Write-Status "      ERROR: Python 3.10+ required!" "Red"
+    Write-Status "      Download from: https://python.org" "Yellow"
+    if (-not $Silent) {{ pause }}
     exit 1
 }}
 
-# Step 3: Copy config
-Write-Host "[3/5] Installing agent configuration..." -ForegroundColor Cyan
-Copy-Item "agent_config.json" "$installDir\\agent_config.json" -Force
-Write-Host "      Config installed (Node: {node['name']})" -ForegroundColor Green
+# Step 3: Copy configuration
+Write-Status "[3/7] Installing configuration..." "Cyan"
+$configSource = Join-Path $scriptDir "agent_config.json"
+if (Test-Path $configSource) {{
+    Copy-Item $configSource "$installDir\\agent_config.json" -Force
+    Write-Status "      Node configured: $nodeName" "Green"
+}} else {{
+    Write-Status "      ERROR: agent_config.json not found!" "Red"
+    if (-not $Silent) {{ pause }}
+    exit 1
+}}
 
 # Step 4: Download agent files
-Write-Host "[4/5] Downloading agent files..." -ForegroundColor Cyan
+Write-Status "[4/7] Downloading agent files..." "Cyan"
 $baseUrl = "https://raw.githubusercontent.com/Bhavanarisatwik/ML-modle-v0/main"
-$agentFiles = @("agent.py", "agent_setup.py", "agent_config.py", "file_monitor.py", "alert_sender.py")
+$files = @("agent.py", "agent_setup.py", "agent_config.py", "file_monitor.py", "alert_sender.py")
+$downloadSuccess = $true
 
-foreach ($file in $agentFiles) {{
+foreach ($file in $files) {{
     try {{
         $url = "$baseUrl/$file"
-        $dest = "$installDir\\$file"
-        Invoke-WebRequest -Uri $url -OutFile $dest -ErrorAction Stop
-        Write-Host "      Downloaded: $file" -ForegroundColor Green
+        Invoke-WebRequest -Uri $url -OutFile "$installDir\\$file" -UseBasicParsing -ErrorAction Stop
+        Write-Status "      Downloaded: $file" "Gray"
     }} catch {{
-        Write-Host "      WARNING: Failed to download $file" -ForegroundColor Yellow
+        Write-Status "      WARNING: Failed to download $file" "Yellow"
+        $downloadSuccess = $false
     }}
 }}
 
-# Step 5: Install dependencies
-Write-Host "[5/5] Installing Python dependencies..." -ForegroundColor Cyan
-& $pythonCmd -m pip install --quiet --upgrade pip
-& $pythonCmd -m pip install --quiet requests watchdog psutil
-Write-Host "      Dependencies installed!" -ForegroundColor Green
-
-Write-Host ""
-Write-Host "==========================================" -ForegroundColor Cyan
-Write-Host "  Installation Complete!" -ForegroundColor Green
-Write-Host "==========================================" -ForegroundColor Cyan
-Write-Host ""
-Write-Host "Agent will deploy:" -ForegroundColor Yellow
-Write-Host "  - {agent_config['deployment_config']['initial_decoys']} decoy files" -ForegroundColor White
-Write-Host "  - {agent_config['deployment_config']['initial_honeytokens']} honeytokens" -ForegroundColor White
-Write-Host ""
-Write-Host "To start the agent:" -ForegroundColor Yellow
-Write-Host "  cd $installDir" -ForegroundColor White
-Write-Host "  python agent.py" -ForegroundColor White
-Write-Host ""
-
-# Ask if user wants to start now
-$start = Read-Host "Start agent now? (Y/n)"
-if ($start -ne "n" -and $start -ne "N") {{
-    Set-Location $installDir
-    & $pythonCmd agent.py
+if (-not $downloadSuccess) {{
+    Write-Status "      Some files failed - checking existing..." "Yellow"
 }}
-"""
-            
+
+# Step 5: Install Python dependencies
+Write-Status "[5/7] Installing Python dependencies..." "Cyan"
+& $pythonCmd -m pip install --quiet --upgrade pip 2>&1 | Out-Null
+& $pythonCmd -m pip install --quiet requests watchdog psutil 2>&1 | Out-Null
+Write-Status "      Dependencies installed" "Green"
+
+# Step 6: Create startup task (run on boot)
+Write-Status "[6/7] Setting up auto-start on boot..." "Cyan"
+$taskName = "DecoyVerseAgent"
+$pythonPath = (Get-Command $pythonCmd).Source
+$taskAction = New-ScheduledTaskAction -Execute $pythonPath -Argument "agent.py" -WorkingDirectory $installDir
+$taskTrigger = New-ScheduledTaskTrigger -AtLogon
+$taskSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
+$taskPrincipal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Highest
+
+# Remove old task if exists
+Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+
+# Create new task
+Register-ScheduledTask -TaskName $taskName -Action $taskAction -Trigger $taskTrigger -Settings $taskSettings -Principal $taskPrincipal -Description "DecoyVerse security monitoring agent" | Out-Null
+Write-Status "      Auto-start enabled (runs at login)" "Green"
+
+# Step 7: Start agent in background
+Write-Status "[7/7] Starting agent in background..." "Cyan"
+Set-Location $installDir
+
+# Start hidden Python process
+$processInfo = New-Object System.Diagnostics.ProcessStartInfo
+$processInfo.FileName = $pythonPath
+$processInfo.Arguments = "agent.py"
+$processInfo.WorkingDirectory = $installDir
+$processInfo.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
+$processInfo.CreateNoWindow = $true
+
+$process = [System.Diagnostics.Process]::Start($processInfo)
+Start-Sleep -Seconds 3
+
+if ($process -and -not $process.HasExited) {{
+    Write-Status "      Agent running (PID: $($process.Id))" "Green"
+}} else {{
+    Write-Status "      Started (checking logs for status)" "Yellow"
+}}
+
+# Done!
+Write-Status ""
+Write-Status "============================================" "Cyan"
+Write-Status "  Installation Complete!" "Green"
+Write-Status "============================================" "Cyan"
+Write-Status ""
+Write-Status "Agent Status:" "White"
+Write-Status "  - Location: $installDir" "Gray"
+Write-Status "  - Node: $nodeName" "Gray"
+Write-Status "  - Decoys: {initial_decoys} files will be deployed" "Gray"
+Write-Status "  - Honeytokens: {initial_honeytokens} tokens will be created" "Gray"
+Write-Status "  - Auto-start: Enabled (runs at login)" "Gray"
+Write-Status ""
+Write-Status "The agent is now running silently in the background." "Green"
+Write-Status "View deployed decoys in the DecoyVerse dashboard." "Green"
+Write-Status ""
+Write-Status "Useful commands:" "Yellow"
+Write-Status "  Stop agent:    Stop-Process -Name python" "Gray"
+Write-Status "  View logs:     Get-Content $installDir\\agent.log -Tail 50" "Gray"
+Write-Status "  Check status:  Get-ScheduledTask DecoyVerseAgent" "Gray"
+Write-Status ""
+
+if (-not $Silent) {{
+    pause
+}}
+'''
             zip_file.writestr("install.ps1", install_script)
             
             # Add README
-            readme = f"""# DecoyVerse Agent - Pre-Configured Installer
+            readme = f"""# DecoyVerse Agent - Complete Auto-Installer
 
 **Node Name:** {node['name']}
 **Node ID:** {node['node_id']}
@@ -267,50 +335,77 @@ if ($start -ne "n" -and $start -ne "N") {{
 
 ## Quick Install (Windows)
 
-### Option 1: PowerShell Script (Recommended)
+### One-Click Installation
 1. Extract this ZIP file
-2. Right-click `install.ps1`
-3. Select "Run with PowerShell"
-4. Click "Yes" when prompted for admin access
-5. Follow the on-screen instructions
+2. Right-click `install.ps1` → "Run with PowerShell"
+3. Click "Yes" when prompted for admin access
+4. Wait for installation to complete
 
-### Option 2: Manual Installation
-1. Copy `agent_config.json` to `C:\\DecoyVerse\\`
-2. Download agent files from GitHub
-3. Install dependencies: `pip install requests watchdog psutil`
-4. Run: `python agent.py`
+**That's it!** The agent will:
+- Install to C:\\DecoyVerse
+- Deploy honeytokens automatically
+- Run in the background
+- Start automatically on boot
 
-## What Happens After Installation?
+## What Gets Installed?
 
-### Automatic Deployment
-The agent will automatically:
-- Deploy {agent_config['deployment_config']['initial_decoys']} decoy files
-- Create {agent_config['deployment_config']['initial_honeytokens']} honeytokens
-- Register all decoys with the backend
-- Start monitoring for access attempts
+### Honeytokens & Decoys
+The agent deploys {initial_decoys} decoy files and {initial_honeytokens} honeytokens to strategic locations:
+- ~/.aws, ~/.ssh, ~/.azure (cloud credentials)
+- Documents, Desktop (user files)
+- Realistic-looking credential files
 
-### View in Dashboard
+### Background Monitoring
+- Runs silently in the background
+- Monitors for file access attempts
+- Sends alerts to dashboard in real-time
+
+### Auto-Start on Boot
+- Scheduled task runs agent when you log in
+- Survives restarts automatically
+- No manual intervention needed
+
+## View in Dashboard
+
+After installation:
 1. Go to DecoyVerse Dashboard
-2. Navigate to "Nodes" page
-3. Click on "{node['name']}"
-4. View deployed decoys and their paths under "Decoys" tab
+2. Navigate to "Nodes" → "{node['name']}"
+3. See deployed decoys under "Decoys" tab
+4. Monitor alerts in "Alerts" page
 
-## Agent Features
+## Commands
 
-✓ Auto-deploys honeytokens based on OS
-✓ Monitors file access in real-time
-✓ Sends alerts to backend when decoys are accessed
-✓ Registers all deployed files with dashboard
-✓ Shows decoy paths and access logs in UI
+```powershell
+# Check agent status
+Get-ScheduledTask DecoyVerseAgent
 
-## System Requirements
+# Stop agent
+Stop-ScheduledTask DecoyVerseAgent
+
+# Start agent  
+Start-ScheduledTask DecoyVerseAgent
+
+# Uninstall
+Unregister-ScheduledTask DecoyVerseAgent -Confirm:$false
+Remove-Item C:\\DecoyVerse -Recurse
+```
+
+## Requirements
 - Windows 10/11
 - Python 3.10+
-- Administrator access
+- Admin access (for installation only)
 - Internet connection
 
-## Support
-For issues, check the DecoyVerse Dashboard or contact support.
+## Troubleshooting
+
+**Agent not running?**
+```powershell
+cd C:\\DecoyVerse
+python agent.py
+```
+
+**Need to reinstall?**
+Run install.ps1 again - it will clean up and reinstall.
 """
             
             zip_file.writestr("README.txt", readme)
