@@ -224,12 +224,15 @@ class DatabaseService:
     
     async def save_deployed_decoy(self, decoy_data: Dict[str, Any]) -> Optional[str]:
         """Save a deployed decoy from agent (with file_path)"""
-        if not self._ensure_db():
-            logger.error("save_deployed_decoy: _ensure_db returned False")
+        if self.db is None:
+            logger.error("save_deployed_decoy: self.db is None!")
             return None
+        
         try:
-            logger.info(f"save_deployed_decoy: Attempting to save {decoy_data.get('file_name')}")
-            logger.info(f"save_deployed_decoy: node_id={decoy_data.get('node_id')}, file_path={decoy_data.get('file_path')}")
+            logger.info(f"save_deployed_decoy: Saving {decoy_data.get('file_name')} for node {decoy_data.get('node_id')}")
+            
+            # Remove triggers_count from data to avoid conflict with $setOnInsert
+            data_to_set = {k: v for k, v in decoy_data.items() if k != 'triggers_count'}
             
             # Upsert based on node_id and file_path to avoid duplicates
             result = await self.db[DECOYS_COLLECTION].update_one(
@@ -237,22 +240,24 @@ class DatabaseService:
                     "node_id": decoy_data["node_id"], 
                     "file_path": decoy_data.get("file_path", decoy_data.get("file_name"))
                 },
-                {"$set": decoy_data, "$setOnInsert": {"triggers_count": 0}},
+                {
+                    "$set": data_to_set,
+                    "$setOnInsert": {"triggers_count": 0}
+                },
                 upsert=True
             )
             
-            logger.info(f"save_deployed_decoy: result.upserted_id={result.upserted_id}, modified={result.modified_count}, matched={result.matched_count}")
-            
-            # Return a success indicator for both insert and update
+            # Return success for insert, update, or match
             if result.upserted_id:
                 logger.info(f"✓ Inserted new decoy: {decoy_data.get('file_name')}")
                 return str(result.upserted_id)
             elif result.modified_count > 0 or result.matched_count > 0:
-                logger.info(f"✓ Updated decoy: {decoy_data.get('file_name')}")
+                logger.info(f"✓ Updated/matched decoy: {decoy_data.get('file_name')}")
                 return decoy_data["node_id"]
             else:
-                logger.warning(f"⚠️ Decoy operation had no effect: {decoy_data.get('file_name')}")
-                return decoy_data["node_id"]  # Still return success for matched
+                logger.warning(f"⚠️ No effect for decoy: {decoy_data.get('file_name')}")
+                return decoy_data["node_id"]
+                
         except Exception as e:
             logger.error(f"Error saving deployed decoy: {e}")
             import traceback
