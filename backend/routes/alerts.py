@@ -183,3 +183,26 @@ async def test_db():
         "db_is_none": db_service.db is None,
         "db_type": str(type(db_service.db))
     }
+
+
+@router.get("/debug-decoys")
+async def debug_decoys():
+    """Debug: List all decoys in database (no auth required)"""
+    try:
+        if db_service.db is None:
+            return {"error": "db is None"}
+        
+        from backend.services.db_service import DECOYS_COLLECTION
+        cursor = db_service.db[DECOYS_COLLECTION].find({})
+        decoys = await cursor.to_list(length=100)
+        
+        # Convert ObjectId to string
+        for d in decoys:
+            d["_id"] = str(d["_id"])
+        
+        return {
+            "count": len(decoys),
+            "decoys": decoys
+        }
+    except Exception as e:
+        return {"error": str(e)}
