@@ -17,6 +17,8 @@ logging.basicConfig(
     filename=str(Path(__file__).resolve().parent / "agent.log"),
     filemode="a",
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    encoding="utf-8",
+    force=True,
 )
 logger = logging.getLogger("AgentConfig")
 
