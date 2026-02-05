@@ -365,6 +365,49 @@ if ($process -and -not $process.HasExited) {{
     Write-Status "      Started (checking logs for status)" "Yellow"
 }}
 
+# Post-install verification (backend + decoys)
+Write-Status "" 
+Write-Status "🔎 Verifying connection and decoys..." "Cyan"
+try {{
+    $configPath = "$installDir\\agent_config.json"
+    if (Test-Path $configPath) {{
+        $cfg = Get-Content $configPath | ConvertFrom-Json
+        $backendUrl = $cfg.backend_url
+        $nodeId = $cfg.node_id
+        $nodeApiKey = $cfg.node_api_key
+
+        $headers = @{{
+            "Content-Type" = "application/json"
+            "X-Node-API-Key" = $nodeApiKey
+        }}
+
+        $heartbeatBody = @{{
+            node_id = $nodeId
+            hostname = $env:COMPUTERNAME
+            os = (Get-CimInstance Win32_OperatingSystem).Caption
+        }} | ConvertTo-Json
+
+        Invoke-RestMethod -Uri "$backendUrl/agent/heartbeat" -Method Post -Headers $headers -Body $heartbeatBody -ErrorAction Stop | Out-Null
+        Write-Status "      ✓ Backend connection OK" "Green"
+
+        Start-Sleep -Seconds 3
+
+        $decoysResp = Invoke-RestMethod -Uri "$backendUrl/debug-decoys" -Method Get -ErrorAction Stop
+        $decoysCount = ($decoysResp.decoys | Where-Object {{ $_.node_id -eq $nodeId }} | Measure-Object).Count
+
+        if ($decoysCount -gt 0) {{
+            Write-Status "      ✓ Decoys deployed: $decoysCount" "Green"
+        }} else {{
+            Write-Status "      ⚠️  Decoys not visible yet (may take 30-60s)" "Yellow"
+        }}
+    }} else {{
+        Write-Status "      ⚠️  Missing agent_config.json for verification" "Yellow"
+    }}
+}} catch {{
+    Write-Status "      ⚠️  Verification failed (backend may be waking up)" "Yellow"
+    Write-Status "      Details: $($_.Exception.Message)" "Gray"
+}}
+
 # Done!
 Write-Status ""
 Write-Status "============================================" "Cyan"
@@ -392,6 +435,22 @@ if (-not $Silent) {{
 }}
 '''
             zip_file.writestr("install.ps1", install_script)
+
+            # One-click launcher for Windows
+            run_cmd = """@echo off
+title DecoyVerse Agent Installer
+echo ==============================================
+echo  DecoyVerse Agent - One-Click Installer
+echo ==============================================
+echo.
+echo This will request Administrator permission.
+echo Please click YES on the prompt.
+echo.
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0install.ps1"
+echo.
+pause
+"""
+            zip_file.writestr("RUN_ME.cmd", run_cmd)
             
             # Add README
             readme = f"""# DecoyVerse Agent - Complete Auto-Installer
@@ -401,6 +460,13 @@ if (-not $Silent) {{
 **Status:** Ready to deploy
 
 ## Quick Install (Windows)
+
+### ✅ One-Click Install (Recommended)
+1. Extract this ZIP file
+2. Double-click **RUN_ME.cmd**
+3. Click **Yes** on the Admin prompt
+
+You will see live progress and a final status summary.
 
 ### IMPORTANT: If you see "Cannot be loaded" error:
 Windows may block downloaded PowerShell scripts. To fix:
