@@ -222,24 +222,24 @@ class AgentRegistration:
         except Exception as e:
             logger.warning(f"Heartbeat failed: {e}")
             return {"success": False, "uninstall": False}
-+
-+    def send_uninstall_complete(self, node_id: str, node_api_key: str) -> bool:
-+        """
-+        Notify backend that uninstall has completed.
-+        """
-+        try:
-+            headers = {
-+                "Content-Type": "application/json",
-+                "X-Node-API-Key": node_api_key,
-+                "X-Node-Id": node_id,
-+                "X-Node-Key": node_api_key,
-+            }
-+            url = f"{self.backend_url}/agent/uninstall-complete"
-+            response = requests.post(url, headers=headers, timeout=10)
-+            return response.status_code in [200, 201]
-+        except Exception as e:
-+            logger.warning(f"Uninstall complete notification failed: {e}")
-+            return False
+
+    def send_uninstall_complete(self, node_id: str, node_api_key: str) -> bool:
+        """
+        Notify backend that uninstall has completed.
+        """
+        try:
+            headers = {
+                "Content-Type": "application/json",
+                "X-Node-API-Key": node_api_key,
+                "X-Node-Id": node_id,
+                "X-Node-Key": node_api_key,
+            }
+            url = f"{self.backend_url}/agent/uninstall-complete"
+            response = requests.post(url, headers=headers, timeout=10)
+            return response.status_code in [200, 201]
+        except Exception as e:
+            logger.warning(f"Uninstall complete notification failed: {e}")
+            return False
     
     def register_deployed_decoys(self, node_id: str, node_api_key: str, decoys: list) -> bool:
         """
