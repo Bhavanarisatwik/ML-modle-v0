@@ -486,6 +486,7 @@ async def register_deployed_decoys(
         
         # Save each decoy to database
         saved_count = 0
+        errors = []
         for decoy in decoys:
             decoy_data = {
                 "node_id": node_id,
@@ -496,18 +497,30 @@ async def register_deployed_decoys(
                 "triggers_count": 0,
                 "created_at": datetime.utcnow().isoformat()
             }
-            result = await db_service.save_deployed_decoy(decoy_data)
-            if result:
-                saved_count += 1
+            logger.info(f"Saving decoy: {decoy_data.get('file_name')} to {decoy_data.get('file_path')}")
+            try:
+                result = await db_service.save_deployed_decoy(decoy_data)
+                logger.info(f"Save result: {result}")
+                if result:
+                    saved_count += 1
+                else:
+                    errors.append(f"Failed to save {decoy_data.get('file_name')}: returned None")
+            except Exception as e:
+                logger.error(f"Exception saving decoy: {e}")
+                errors.append(str(e))
         
         logger.info(f"✓ Registered {saved_count}/{len(decoys)} decoys for node {node_id}")
         
-        return {
+        response = {
             "status": "success",
             "registered": saved_count,
             "total": len(decoys),
             "node_id": node_id
         }
+        if errors:
+            response["errors"] = errors
+        
+        return response
     
     except HTTPException:
         raise
