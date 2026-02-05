@@ -3,7 +3,7 @@ Node Management Routes
 CRUD operations for nodes
 """
 
-from fastapi import APIRouter, HTTPException, Header
+from fastapi import APIRouter, HTTPException, Header, Query
 from typing import List, Optional
 import logging
 
@@ -130,7 +130,7 @@ async def update_node(
 async def delete_node(
     node_id: str,
     authorization: Optional[str] = Header(None),
-    force: bool = False
+    force: bool = Query(default=False, description="Force delete without requesting agent uninstall")
 ):
     """
     Delete node (requests uninstall first)
