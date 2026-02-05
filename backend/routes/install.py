@@ -459,17 +459,219 @@ Remove-Item C:\\DecoyVerse -Recurse
 
 ## Troubleshooting
 
-**Agent not running?**
+### Decoys Not Showing in Dashboard?
+
+**Wait 1-2 minutes** after installation. The agent needs to:
+1. Deploy honeytokens (30 seconds)
+2. Register with backend (15 seconds)
+3. Send heartbeat to activate node (10 seconds)
+4. Dashboard refreshes every 30 seconds
+
+**Still not showing?**
+```powershell
+# Check if agent is running
+Get-Process python | Where-Object {{$_.Path -like "*DecoyVerse*"}}
+
+# View agent logs (if exists)
+Get-Content C:\\DecoyVerse\\agent.log -Tail 20
+
+# Restart agent manually
+cd C:\\DecoyVerse
+python agent.py
+```
+
+### "Cannot be loaded because running scripts is disabled"
+
+Run ONE of these commands in PowerShell:
+```powershell
+# Method 1: Unblock and run
+Unblock-File .\\install.ps1; .\\install.ps1
+
+# Method 2: Bypass execution policy
+powershell -ExecutionPolicy Bypass -File .\\install.ps1
+
+# Method 3: Properties → Unblock
+# Right-click install.ps1 → Properties → Check "Unblock" → OK → Run
+```
+
+### Multiple Agents Warning
+
+**Only install ONE agent per system!** If you see the warning:
+- Option 1: Cancel and use existing agent
+- Option 2: Continue to replace (stops old agent first)
+
+### Python Not Found
+
+Install Python 3.10+ from https://python.org
+**Important:** Check "Add Python to PATH" during installation!
+
+### Admin Access Required
+
+The installer MUST run as Administrator to:
+- Create scheduled tasks
+- Write to system directories
+- Install background services
+
+Right-click PowerShell → "Run as Administrator" → Navigate to folder → Run script
+
+### Dashboard Shows "installer_ready" Forever
+
+This means the agent installed but didn't start properly.
+
+**Fix:**
 ```powershell
 cd C:\\DecoyVerse
 python agent.py
 ```
 
-**Need to reinstall?**
-Run install.ps1 again - it will clean up and reinstall.
+Watch for errors. Common issues:
+- Missing Python packages → Install: `pip install requests watchdog psutil`
+- Network blocked → Check firewall allows Python
+- Config missing → Redownload installer from dashboard
+
+### Check Installation Status
+
+```powershell
+# Is agent installed?
+Test-Path C:\\DecoyVerse\\agent.py
+
+# Is scheduled task created?
+Get-ScheduledTask DecoyVerseAgent
+
+# Is agent running NOW?
+Get-Process python | Where-Object {{$_.Path -like "*DecoyVerse*"}}
+
+# Run agent manually (see output)
+cd C:\\DecoyVerse
+python agent.py
+```
+
+### Need Help?
+
+1. Check dashboard logs
+2. Run agent manually: `cd C:\\DecoyVerse; python agent.py`
+3. Screenshot any error messages
+4. Check node status in dashboard
+
+## Requirements
+- Windows 10/11
+- Python 3.10+
+- Admin access (for installation only)
+- Internet connection
 """
             
             zip_file.writestr("README.txt", readme)
+            
+            # Add quick troubleshooting guide
+            troubleshooting = f"""╔════════════════════════════════════════════════════════════════╗
+║        DECOYVERSE AGENT - QUICK TROUBLESHOOTING                 ║
+║        Node: {node['name']}                                     ║
+╚════════════════════════════════════════════════════════════════╝
+
+🔴 ISSUE: "Cannot load script - execution policy"
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FIX: Run this ONE command in PowerShell:
+    Unblock-File .\\install.ps1; .\\install.ps1
+
+Alternative:
+    powershell -ExecutionPolicy Bypass -File .\\install.ps1
+
+
+🔴 ISSUE: Decoys not showing in dashboard
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+WAIT: 1-2 minutes after install for dashboard to update
+
+CHECK STATUS:
+    cd C:\\DecoyVerse
+    python agent.py
+
+Expected output:
+    ✓ Agent registered as: {node['node_id']}
+    ✓ Registered X decoys with backend
+
+
+🔴 ISSUE: Dashboard shows "installer_ready" forever
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Agent installed but didn't start. Manually run:
+    cd C:\\DecoyVerse
+    python agent.py
+
+Check for errors like:
+    - ModuleNotFoundError → pip install requests watchdog psutil
+    - Connection errors → Check firewall/network
+    - Config errors → Redownload installer
+
+
+🔴 ISSUE: Warning "Agent already installed"
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+You can only run ONE agent per system!
+
+Option 1: Cancel install, use existing agent
+Option 2: Type 'y' to replace (deletes old agent)
+
+
+🔴 ISSUE: Python not found
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Install Python 3.10+ from https://python.org
+IMPORTANT: Check "Add Python to PATH" during install!
+
+
+🟢 VERIFY INSTALLATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Run these commands to check status:
+
+1. Is agent installed?
+    Test-Path C:\\DecoyVerse\\agent.py
+
+2. Is scheduled task created?
+    Get-ScheduledTask DecoyVerseAgent
+
+3. Is agent running NOW?
+    Get-Process python | Where-Object {{$_.Path -like "*DecoyVerse*"}}
+
+4. Run agent manually (see full output):
+    cd C:\\DecoyVerse
+    python agent.py
+
+
+🟢 USEFUL COMMANDS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Stop agent:
+    Stop-Process -Name python -Force
+
+Start scheduled task:
+    Start-ScheduledTask DecoyVerseAgent
+
+View task status:
+    Get-ScheduledTask DecoyVerseAgent | Select-Object State,LastRunTime
+
+Uninstall completely:
+    Unregister-ScheduledTask DecoyVerseAgent -Confirm:$false
+    Remove-Item C:\\DecoyVerse -Recurse -Force
+
+
+🟢 EXPECTED BEHAVIOR
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+After successful install:
+1. Installer shows "Installation Complete!" ✓
+2. Agent runs in background (hidden)
+3. Within 1-2 minutes:
+   - Dashboard shows node status: "Active" ✓
+   - Decoys tab shows {initial_decoys} decoy files ✓
+   - Honeytokens tab shows {initial_honeytokens} tokens ✓
+4. Scheduled task created for auto-start ✓
+
+
+📞 STILL HAVING ISSUES?
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. Run manually: cd C:\\DecoyVerse; python agent.py
+2. Screenshot any error messages
+3. Check dashboard for node status
+4. Verify Python is installed: python --version
+5. Check internet connection
+"""
+            
+            zip_file.writestr("TROUBLESHOOTING.txt", troubleshooting)
         
         # Prepare download
         zip_buffer.seek(0)
