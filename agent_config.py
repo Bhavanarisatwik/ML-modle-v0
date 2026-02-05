@@ -66,6 +66,23 @@ class AgentConfig:
             "backend_url",
             "https://ml-modle-v0-1.onrender.com/api"
         )
+
+    def get_express_backend_url(self) -> str:
+        """Get Express backend API URL (agent registration/heartbeat)"""
+        return self.config.get(
+            "express_backend_url",
+            self.config.get(
+                "backend_url",
+                "https://decoyverse-v2.onrender.com/api"
+            )
+        )
+
+    def get_ml_service_url(self) -> str:
+        """Get ML service base URL (alert scoring)"""
+        return self.config.get(
+            "ml_service_url",
+            "https://ml-modle-v0-1.onrender.com"
+        )
     
     def get_deployment_config(self) -> Dict:
         """Get deployment configuration (initial decoys/honeytokens)"""
@@ -127,6 +144,7 @@ class AgentRegistration:
             
             headers = {
                 "Content-Type": "application/json",
+                "X-Node-API-Key": node_api_key,
                 "X-Node-Id": node_id,
                 "X-Node-Key": node_api_key,
             }
@@ -175,6 +193,7 @@ class AgentRegistration:
             
             headers = {
                 "Content-Type": "application/json",
+                "X-Node-API-Key": node_api_key,
                 "X-Node-Id": node_id,
                 "X-Node-Key": node_api_key,
             }
@@ -213,6 +232,7 @@ class AgentRegistration:
             
             headers = {
                 "Content-Type": "application/json",
+                "X-Node-API-Key": node_api_key,
                 "X-Node-Id": node_id,
                 "X-Node-Key": node_api_key,
             }

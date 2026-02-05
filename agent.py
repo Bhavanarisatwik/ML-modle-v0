@@ -21,9 +21,9 @@ class DeceptionAgent:
         self.config = AgentConfig()
         self.setup = HoneytokenSetup(watch_dir)
         self.monitor = FileMonitor(watch_dir)
-        # Use backend URL from config
-        backend_url = self.config.get_backend_url()
-        self.sender = AlertSender(api_url=backend_url)
+        # Use ML service URL for alert scoring
+        ml_service_url = self.config.get_ml_service_url()
+        self.sender = AlertSender(api_url=ml_service_url)
         self.registration = AgentRegistration(self.config)
         self.running = False
     

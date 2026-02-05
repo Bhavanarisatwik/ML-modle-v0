@@ -21,7 +21,8 @@ import time
 INSTALL_DIR = r"C:\DecoyVerse"
 GITHUB_REPO = "https://raw.githubusercontent.com/Bhavanarisatwik/ML-modle-v0/main"
 BACKEND_URL = "https://ml-modle-v0-1.onrender.com/api"
-ML_SERVICE_URL = "https://ml-modle-v0-2.onrender.com"
+EXPRESS_BACKEND_URL = "https://decoyverse-v2.onrender.com/api"
+ML_SERVICE_URL = "https://ml-modle-v0-1.onrender.com"
 
 AGENT_FILES = [
     "agent.py",
@@ -161,6 +162,7 @@ def get_config_interactive():
         "node_name": node_name,
         "os_type": "windows",
         "backend_url": BACKEND_URL,
+        "express_backend_url": EXPRESS_BACKEND_URL,
         "ml_service_url": ML_SERVICE_URL,
         "deployment_config": {
             "initial_decoys": 3,
@@ -202,6 +204,7 @@ def main():
             "node_name": args.node_name,
             "os_type": "windows",
             "backend_url": BACKEND_URL,
+            "express_backend_url": EXPRESS_BACKEND_URL,
             "ml_service_url": ML_SERVICE_URL,
             "deployment_config": {
                 "initial_decoys": 3,

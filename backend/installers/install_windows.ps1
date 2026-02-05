@@ -47,6 +47,7 @@ try {
 
 # Download agent files from backend
 $BackendUrl = "https://ml-modle-v0-1.onrender.com"
+$ExpressBackendUrl = "https://decoyverse-v2.onrender.com"
 Write-Host "[INFO] Downloading agent files from $BackendUrl..." -ForegroundColor Yellow
 
 # Create agent config
@@ -54,7 +55,8 @@ $ConfigPath = "$InstallDir\agent_config.json"
 $ConfigObject = @{
     node_api_key = $Token
     backend_url = "$BackendUrl/api"
-    ml_service_url = "https://ml-modle-v0-2.onrender.com"
+    express_backend_url = "$ExpressBackendUrl/api"
+    ml_service_url = "https://ml-modle-v0-1.onrender.com"
     monitor_paths = @(
         "$env:USERPROFILE\Documents",
         "$env:USERPROFILE\Desktop"
@@ -111,7 +113,8 @@ with open(CONFIG_PATH, encoding="utf-8-sig") as f:
 
 NODE_API_KEY = CONFIG.get("node_api_key", "")
 BACKEND_URL = CONFIG.get("backend_url", "https://ml-modle-v0-1.onrender.com/api")
-ML_SERVICE_URL = CONFIG.get("ml_service_url", "https://ml-modle-v0-2.onrender.com")
+EXPRESS_BACKEND_URL = CONFIG.get("express_backend_url", "https://decoyverse-v2.onrender.com/api")
+ML_SERVICE_URL = CONFIG.get("ml_service_url", "https://ml-modle-v0-1.onrender.com")
 MONITOR_PATHS = CONFIG.get("monitor_paths", [])
 CHECK_INTERVAL = CONFIG.get("check_interval", 5)
 

@@ -68,12 +68,14 @@ fi
 
 # Create config
 BACKEND_URL="https://ml-modle-v0-1.onrender.com"
-ML_SERVICE_URL="https://ml-modle-v0-2.onrender.com"
+EXPRESS_BACKEND_URL="https://decoyverse-v2.onrender.com"
+ML_SERVICE_URL="https://ml-modle-v0-1.onrender.com"
 
 cat > $INSTALL_DIR/agent_config.json << EOF
 {
     "node_api_key": "$TOKEN",
     "backend_url": "$BACKEND_URL/api",
+    "express_backend_url": "$EXPRESS_BACKEND_URL/api",
     "ml_service_url": "$ML_SERVICE_URL",
     "monitor_paths": [
         "/home",
@@ -116,7 +118,7 @@ with open(CONFIG_PATH) as f:
 
 NODE_API_KEY = CONFIG.get("node_api_key", "")
 BACKEND_URL = CONFIG.get("backend_url", "https://ml-modle-v0-1.onrender.com/api")
-ML_SERVICE_URL = CONFIG.get("ml_service_url", "https://ml-modle-v0-2.onrender.com")
+ML_SERVICE_URL = CONFIG.get("ml_service_url", "https://ml-modle-v0-1.onrender.com")
 MONITOR_PATHS = CONFIG.get("monitor_paths", [])
 CHECK_INTERVAL = CONFIG.get("check_interval", 5)
 

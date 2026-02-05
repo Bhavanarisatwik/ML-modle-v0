@@ -55,12 +55,14 @@ fi
 
 # Create config
 BACKEND_URL="https://ml-modle-v0-1.onrender.com"
-ML_SERVICE_URL="https://ml-modle-v0-2.onrender.com"
+EXPRESS_BACKEND_URL="https://decoyverse-v2.onrender.com"
+ML_SERVICE_URL="https://ml-modle-v0-1.onrender.com"
 
 sudo tee $INSTALL_DIR/agent_config.json > /dev/null << EOF
 {
     "node_api_key": "$TOKEN",
     "backend_url": "$BACKEND_URL/api",
+    "express_backend_url": "$EXPRESS_BACKEND_URL/api",
     "ml_service_url": "$ML_SERVICE_URL",
     "monitor_paths": [
         "$HOME/Documents",

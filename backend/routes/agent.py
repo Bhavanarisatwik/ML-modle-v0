@@ -294,7 +294,8 @@ async def download_agent(
         config = {
             "node_id": node.get("node_id"),
             "node_api_key": node.get("node_api_key"),
-            "backend_url": "https://api.decoyverse.example.com",
+            "backend_url": "https://ml-modle-v0-1.onrender.com/api",
+            "express_backend_url": "https://decoyverse-v2.onrender.com/api",
             "version": "2.0.0",
             "endpoints": {
                 "agent_alert": "/api/agent-alert",

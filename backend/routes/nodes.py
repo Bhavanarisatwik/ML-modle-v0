@@ -256,7 +256,8 @@ async def download_agent(
             "node_name": node["name"],
             "os_type": node.get("os_type", "windows"),
             "backend_url": "https://ml-modle-v0-1.onrender.com/api",
-            "ml_service_url": "https://ml-modle-v0-2.onrender.com",
+            "express_backend_url": "https://decoyverse-v2.onrender.com/api",
+            "ml_service_url": "https://ml-modle-v0-1.onrender.com",
             "deployment_config": deployment_config
         }
         config_json = json.dumps(config, indent=2)
@@ -327,8 +328,9 @@ powershell -Command "$config = @'
   \"node_api_key\": \"{node["node_api_key"]}\",
   \"node_name\": \"{node_name_safe}\",
   \"os_type\": \"{node.get("os_type", "windows")}\",
-  \"backend_url\": \"https://ml-modle-v0-1.onrender.com/api\",
-  \"ml_service_url\": \"https://ml-modle-v0-2.onrender.com\",
+    \"backend_url\": \"https://ml-modle-v0-1.onrender.com/api\",
+    \"express_backend_url\": \"https://decoyverse-v2.onrender.com/api\",
+    \"ml_service_url\": \"https://ml-modle-v0-1.onrender.com\",
   \"deployment_config\": {{
     \"initial_decoys\": {deployment_config.get("initial_decoys", 3)},
     \"initial_honeytokens\": {deployment_config.get("initial_honeytokens", 5)},

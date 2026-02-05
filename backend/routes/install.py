@@ -140,7 +140,8 @@ async def generate_installer(
             "node_name": node["name"],
             "os_type": node.get("os_type", "windows"),
             "backend_url": "https://ml-modle-v0-1.onrender.com/api",
-            "ml_service_url": "https://ml-modle-v0-2.onrender.com",
+            "express_backend_url": "https://decoyverse-v2.onrender.com/api",
+            "ml_service_url": "https://ml-modle-v0-1.onrender.com",
             "deployment_config": {
                 "initial_decoys": initial_decoys,
                 "initial_honeytokens": initial_honeytokens,
@@ -188,36 +189,63 @@ Write-Status ""
 
 # CRITICAL: Check if agent already installed
 if (Test-Path "$installDir\\agent.py") {{
+    # Try to read existing node name from config
+    $existingNodeName = "Unknown"
+    $existingConfigPath = "$installDir\\agent_config.json"
+    if (Test-Path $existingConfigPath) {{
+        try {{
+            $existingConfig = Get-Content $existingConfigPath | ConvertFrom-Json
+            $existingNodeName = $existingConfig.node_name -or "Unknown"
+        }} catch {{
+            $existingNodeName = "Unknown"
+        }}
+    }}
+    
+    # Check if agent process is actually running
+    $agentProcess = Get-Process -Name python -ErrorAction SilentlyContinue | Where-Object {{$_.Path -like "*DecoyVerse*"}}
+    $isRunning = $null -ne $agentProcess
+    
     Write-Status "" "Yellow"
     Write-Status "============================================" "Yellow"
-    Write-Status "  WARNING: Agent Already Installed!" "Yellow"
+    Write-Status "  ⚠️  AGENT ALREADY INSTALLED!" "Yellow"
     Write-Status "============================================" "Yellow"
     Write-Status "" "Yellow"
-    Write-Status "An agent is already running on this system." "Yellow"
-    Write-Status "Installing a second agent may cause conflicts!" "Yellow"
+    Write-Status "Existing agent found:" "Yellow"
+    Write-Status "  Node Name: $existingNodeName" "Cyan"
+    Write-Status "  Location: $installDir" "Gray"
+    Write-Status "  Status: $(if ($isRunning) {{ 'RUNNING' }} else {{ 'INSTALLED (Not Running)' }})" "$(if ($isRunning) {{ 'Green' }} else {{ 'Yellow' }})"
     Write-Status "" "Yellow"
-    Write-Status "Current installation: $installDir" "Gray"
+    Write-Status "Installing a second agent will:" "Red"
+    Write-Status "  - Stop the existing agent ($existingNodeName)" "Gray"
+    Write-Status "  - Replace all files" "Gray"
+    Write-Status "  - Delete existing honeytokens" "Gray"
     Write-Status "" "Yellow"
     Write-Status "Options:" "Cyan"
-    Write-Status "  1. Exit and use existing agent" "Gray"
-    Write-Status "  2. Continue anyway (may cause issues)" "Gray"
+    Write-Status "  1. Press N to EXIT (keep existing agent)" "Gray"
+    Write-Status "  2. Press Y to REPLACE (install new agent '$nodeName')" "Gray"
     Write-Status "" "Yellow"
     
     if (-not $Silent) {{
-        $response = Read-Host "Continue installation? (y/N)"
+        $response = Read-Host "Replace existing agent? (y/N)"
         if ($response -ne 'y' -and $response -ne 'Y') {{
+            Write-Status "" "Yellow"
             Write-Status "Installation cancelled." "Yellow"
+            Write-Status "Keeping existing agent: $existingNodeName" "Green"
+            Write-Status "" "Yellow"
             pause
             exit 0
         }}
         Write-Status "" "Yellow"
-        Write-Status "Proceeding with installation..." "Yellow"
-        Write-Status "Previous agent will be stopped and replaced." "Yellow"
-        Write-Status "" "Yellow"
+        Write-Status "🔄 Replacing agent..." "Yellow"
+        Write-Status "Stopping existing agent ($existingNodeName)..." "Yellow"
         
         # Stop existing agent processes
-        Write-Status "Stopping existing agent processes..." "Yellow"
         Get-Process -Name python -ErrorAction SilentlyContinue | Where-Object {{$_.Path -like "*DecoyVerse*"}} | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
+        Write-Status "✓ Existing agent stopped" "Green"
+        Write-Status "" "Yellow"
+    }}
+}}
         Start-Sleep -Seconds 2
     }}
 }}
