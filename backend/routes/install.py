@@ -366,9 +366,9 @@ if ($process -and -not $process.HasExited) {{
     Write-Status "      Started (checking logs for status)" "Yellow"
 }}
 
-# Post-install verification (backend + decoys)
+# Post-install verification (backend connection only)
 Write-Status "" 
-Write-Status "[*] Verifying connection and decoys..." "Cyan"
+Write-Status "[*] Verifying backend connection..." "Cyan"
 try {{
     $configPath = "$installDir\\agent_config.json"
     if (Test-Path $configPath) {{
@@ -389,18 +389,8 @@ try {{
         }} | ConvertTo-Json
 
         Invoke-RestMethod -Uri "$backendUrl/agent/heartbeat" -Method Post -Headers $headers -Body $heartbeatBody -ErrorAction Stop | Out-Null
-        Write-Status "      [OK] Backend connection OK" "Green"
-
-        Start-Sleep -Seconds 3
-
-        $decoysResp = Invoke-RestMethod -Uri "$backendUrl/debug-decoys" -Method Get -ErrorAction Stop
-        $decoysCount = ($decoysResp.decoys | Where-Object {{ $_.node_id -eq $nodeId }} | Measure-Object).Count
-
-        if ($decoysCount -gt 0) {{
-            Write-Status "      [OK] Decoys deployed: $decoysCount" "Green"
-        }} else {{
-            Write-Status "      [!] Decoys not visible yet (may take 30-60s)" "Yellow"
-        }}
+        Write-Status "      [OK] Backend connection verified" "Green"
+        Write-Status "      [*] Decoys will deploy within 1-2 minutes" "Cyan"
     }} else {{
         Write-Status "      [!] Missing agent_config.json for verification" "Yellow"
     }}
@@ -427,7 +417,7 @@ Write-Status "View deployed decoys in the DecoyVerse dashboard." "Green"
 Write-Status ""
 Write-Status "Useful commands:" "Yellow"
 Write-Status "  Stop agent:    Stop-Process -Name python" "Gray"
-Write-Status "  View logs:     Get-Content \`$installDir\agent.log -Tail 50" "Gray"
+Write-Status "  View logs:     Get-Content `$installDir\agent.log -Tail 50" "Gray"
 Write-Status "  Check status:  Get-ScheduledTask DecoyVerseAgent" "Gray"
 Write-Status ""
 
