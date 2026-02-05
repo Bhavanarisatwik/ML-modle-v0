@@ -191,9 +191,9 @@ async def test_save_decoy():
         "created_at": datetime.utcnow().isoformat()
     }
     
-    # Check db status first
-    db_check = db_service._ensure_db()
-    db_type = type(db_service.db).__name__ if db_service.db else "None"
+    # Check db status first  
+    db_is_none = db_service.db is None
+    db_type = str(type(db_service.db)) if db_service.db else "NoneType"
     
     result = None
     error = None
@@ -203,9 +203,8 @@ async def test_save_decoy():
         error = str(e)
     
     return {
-        "db_check": db_check,
+        "db_is_none": db_is_none,
         "db_type": db_type,
         "save_result": result,
-        "error": error,
-        "test_decoy": test_decoy
+        "error": error
     }
