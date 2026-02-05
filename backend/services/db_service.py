@@ -207,6 +207,8 @@ class DatabaseService:
     
     async def get_decoys_by_node(self, node_id: str) -> List[Dict]:
         """Get all decoys for a node"""
+        if not self._ensure_db():
+            return []
         try:
             cursor = self.db[DECOYS_COLLECTION].find({"node_id": node_id})
             decoys = await cursor.to_list(length=1000)
@@ -221,6 +223,8 @@ class DatabaseService:
     
     async def save_deployed_decoy(self, decoy_data: Dict[str, Any]) -> Optional[str]:
         """Save a deployed decoy from agent (with file_path)"""
+        if not self._ensure_db():
+            return None
         try:
             # Upsert based on node_id and file_path to avoid duplicates
             result = await self.db[DECOYS_COLLECTION].update_one(
@@ -231,7 +235,16 @@ class DatabaseService:
                 {"$set": decoy_data, "$setOnInsert": {"triggers_count": 0}},
                 upsert=True
             )
-            return str(result.upserted_id) if result.upserted_id else decoy_data["node_id"]
+            # Return a success indicator for both insert and update
+            if result.upserted_id:
+                logger.info(f"✓ Inserted new decoy: {decoy_data.get('file_name')}")
+                return str(result.upserted_id)
+            elif result.modified_count > 0 or result.matched_count > 0:
+                logger.info(f"✓ Updated decoy: {decoy_data.get('file_name')}")
+                return decoy_data["node_id"]
+            else:
+                logger.warning(f"⚠️ Decoy operation had no effect: {decoy_data.get('file_name')}")
+                return decoy_data["node_id"]  # Still return success for matched
         except Exception as e:
             logger.error(f"Error saving deployed decoy: {e}")
             return None
