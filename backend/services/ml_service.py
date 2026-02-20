@@ -87,35 +87,39 @@ class MLService:
         service = str(log_data.get("service", "unknown")).lower()
         activity = str(log_data.get("activity", "unknown")).lower()
         payload = str(log_data.get("payload", "")).lower()
-        file_accessed = str(log_data.get("file_accessed", "unknown")).lower()
+        
+        # Support both 'file_accessed' (AgentEvent) and 'file_name' (HoneypotLog)
+        file_accessed = str(log_data.get("file_accessed") or log_data.get("file_name") or "unknown").lower()
+        alert_type = str(log_data.get("alert_type", "")).upper()
+        severity = str(log_data.get("severity", "")).upper()
         
         # 1. failed_logins (suspicion heuristic)
         failed_logins = 0
         if "login" in activity or "auth" in activity:
             failed_logins = 85
-        if "modified" in activity:
+        if "modified" in activity or severity == "CRITICAL":
             failed_logins = 120
             
-        # 2. request_rate (intensity heuristic)
+        # 2. request_rate (Intensity aligned with 100% accuracy model)
         request_rate = 100
         if "scan" in activity or "brute" in activity:
             request_rate = 1200
-        if "endpoint_agent" in service:
+        elif alert_type == "HONEYTOKEN_ACCESS" or "endpoint_agent" in service:
             request_rate = 300
             
         # 3. commands_count
         commands_count = 5
-        if "command" in activity or "exec" in activity:
+        if "command" in activity or "exec" in activity or "injection" in activity:
             commands_count = 35
             
         # 4. sql_payload (signature detection)
         sql_payload = 0
         sql_signatures = ["select", "union", "insert", "drop", "delete", "--", "1=1", "' or"]
-        if any(sig in payload for sig in sql_signatures) or "sql" in file_accessed:
+        if any(sig in payload for sig in sql_signatures) or "sql" in file_accessed or "db_" in file_accessed:
             sql_payload = 1
             
         # 5. honeytoken_access
-        honeytoken_access = 1 if (log_data.get("alert_type") == "HONEYTOKEN_ACCESS" or "endpoint_agent" in service) else 0
+        honeytoken_access = 1 if (alert_type == "HONEYTOKEN_ACCESS" or "endpoint_agent" in service or "honey" in file_accessed) else 0
         
         # 6. session_time
         session_time = 300 # Default baseline
