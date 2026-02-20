@@ -83,10 +83,6 @@ class MLService:
     def _convert_to_ml_features(log_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Convert raw log metadata into numeric features for the ML model.
-        Maps:
-        - service/activity -> failed_logins, request_rate
-        - payload/file_accessed -> sql_payload
-        - alert_type -> honeytoken_access
         """
         service = str(log_data.get("service", "unknown")).lower()
         activity = str(log_data.get("activity", "unknown")).lower()
@@ -99,20 +95,18 @@ class MLService:
             failed_logins = 85
         if "modified" in activity:
             failed_logins = 120
-        if "ssh" in service:
-            failed_logins = 50
             
         # 2. request_rate (intensity heuristic)
         request_rate = 100
         if "scan" in activity or "brute" in activity:
-            request_rate = 450
+            request_rate = 1200
         if "endpoint_agent" in service:
             request_rate = 300
             
         # 3. commands_count
         commands_count = 5
         if "command" in activity or "exec" in activity:
-            commands_count = 15
+            commands_count = 35
             
         # 4. sql_payload (signature detection)
         sql_payload = 0
