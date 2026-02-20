@@ -91,49 +91,39 @@ class AlertSender:
     
     def send_alert(self, alert: Dict[str, Any]) -> bool:
         """
-        Send alert to backend API
-        
-        Args:
-            alert: Alert dictionary from file monitor
-        
-        Returns:
-            True if sent successfully
+        Send alert to backend API in AgentEvent format.
         """
         try:
-            # Convert alert to ML input format
-            log_data = self.alert_to_log_format(alert)
-            
             print(f"\n📤 Sending alert to API...")
             print(f"   File: {alert['file_accessed']}")
             print(f"   Action: {alert['action']}")
             
-            # Send to backend API
+            # Send the raw alert metadata to the backend
+            # Backend endpoint /api/agent-alert expects AgentEvent schema
             response = requests.post(
                 self.alert_endpoint,
-                json=log_data,
-                timeout=5
+                json=alert,
+                timeout=10
             )
             
             if response.status_code == 200:
                 result = response.json()
                 
-                print(f"\n✓ Alert processed by ML model")
-                print(f"   Attack Type: {result['attack_type']}")
-                print(f"   Risk Score: {result['risk_score']}/10")
-                print(f"   Confidence: {result['confidence']:.2%}")
-                print(f"   Anomaly: {result['is_anomaly']}")
+                # Check if backend returned a prediction
+                ml = result.get('ml_prediction')
+                if ml:
+                    print(f"\n✓ Alert processed by ML model")
+                    print(f"   Attack Type: {ml.get('attack_type')}")
+                    print(f"   Risk Score: {ml.get('risk_score')}/10")
+                    print(f"   Confidence: {ml.get('confidence', 0):.2%}")
+                else:
+                    print(f"\n✓ Alert saved successfully (no ML data returned)")
                 
                 self.alerts_sent += 1
-                
-                # Store full response
-                alert['ml_prediction'] = result
-                alert['backend_status'] = 'SUCCESS'
-                
                 return True
             else:
                 print(f"✗ API returned status {response.status_code}")
                 print(f"   Response: {response.text}")
-                alert['backend_status'] = f'ERROR_{response.status_code}'
                 self.alerts_failed += 1
                 return False
         
