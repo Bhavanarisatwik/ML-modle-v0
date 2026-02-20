@@ -81,16 +81,58 @@ class MLService:
     
     @staticmethod
     def _convert_to_ml_features(log_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Convert log data to ML features"""
-        # Extract features for ML model
+        """
+        Convert raw log metadata into numeric features for the ML model.
+        Maps:
+        - service/activity -> failed_logins, request_rate
+        - payload/file_accessed -> sql_payload
+        - alert_type -> honeytoken_access
+        """
+        service = str(log_data.get("service", "unknown")).lower()
+        activity = str(log_data.get("activity", "unknown")).lower()
+        payload = str(log_data.get("payload", "")).lower()
+        file_accessed = str(log_data.get("file_accessed", "unknown")).lower()
+        
+        # 1. failed_logins (suspicion heuristic)
+        failed_logins = 0
+        if "login" in activity or "auth" in activity:
+            failed_logins = 85
+        if "modified" in activity:
+            failed_logins = 120
+        if "ssh" in service:
+            failed_logins = 50
+            
+        # 2. request_rate (intensity heuristic)
+        request_rate = 100
+        if "scan" in activity or "brute" in activity:
+            request_rate = 450
+        if "endpoint_agent" in service:
+            request_rate = 300
+            
+        # 3. commands_count
+        commands_count = 5
+        if "command" in activity or "exec" in activity:
+            commands_count = 15
+            
+        # 4. sql_payload (signature detection)
+        sql_payload = 0
+        sql_signatures = ["select", "union", "insert", "drop", "delete", "--", "1=1", "' or"]
+        if any(sig in payload for sig in sql_signatures) or "sql" in file_accessed:
+            sql_payload = 1
+            
+        # 5. honeytoken_access
+        honeytoken_access = 1 if (log_data.get("alert_type") == "HONEYTOKEN_ACCESS" or "endpoint_agent" in service) else 0
+        
+        # 6. session_time
+        session_time = 300 # Default baseline
+        
         return {
-            "service": log_data.get("service", "unknown"),
-            "source_ip": log_data.get("source_ip", "0.0.0.0"),
-            "activity": log_data.get("activity", "unknown"),
-            "payload": log_data.get("payload", ""),
-            "hostname": log_data.get("hostname", "unknown"),
-            "username": log_data.get("username", "unknown"),
-            "file_accessed": log_data.get("file_accessed", "unknown")
+            "failed_logins": failed_logins,
+            "request_rate": request_rate,
+            "commands_count": commands_count,
+            "sql_payload": sql_payload,
+            "honeytoken_access": honeytoken_access,
+            "session_time": session_time
         }
 
 
