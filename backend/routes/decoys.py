@@ -163,3 +163,43 @@ async def delete_decoy(
     except Exception as e:
         logger.error(f"Error deleting decoy: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+from pydantic import BaseModel
+class DeployRequest(BaseModel):
+    node_id: str
+    count: int
+
+@router.post("/deploy")
+async def deploy_decoys(
+    request: DeployRequest,
+    authorization: Optional[str] = Header(None)
+):
+    """
+    Increase the honeytoken count for a node to trigger creation on the agent's next check-in
+    """
+    try:
+        user_id = get_user_id_from_header(authorization)
+        node = await db_service.get_node_by_id(request.node_id)
+        if not node or (AUTH_ENABLED and node.get("user_id") != user_id):
+            raise HTTPException(status_code=403, detail="Unauthorized")
+
+        # Increment honeytoken count in deployment config
+        if "deployment_config" not in node:
+            node["deployment_config"] = {"initial_decoys": 3, "initial_honeytokens": 5}
+        
+        node["deployment_config"]["initial_honeytokens"] = node["deployment_config"].get("initial_honeytokens", 5) + request.count
+        
+        # Update node
+        # A proper update method would be better, but we'll use a direct update here if the service lacks one
+        await db_service.db["nodes"].update_one(
+            {"node_id": request.node_id},
+            {"$set": {"deployment_config": node["deployment_config"]}}
+        )
+        
+        return {"success": True, "data": []} # Data will populate next time agent reports
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error triggering deploy: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+

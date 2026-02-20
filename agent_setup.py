@@ -167,14 +167,16 @@ class SmartHoneytokenDeployer:
         # Filter to only existing directories (or create high-value ones)
         valid_targets = []
         for path, priority in targets:
-            if os.path.exists(path) and os.access(path, os.W_OK):
+            try:
+                # Test write access reliably by touching a file
+                os.makedirs(path, exist_ok=True)
+                test_file = os.path.join(path, '.test_write')
+                with open(test_file, 'w') as f:
+                    f.write('test')
+                os.remove(test_file)
                 valid_targets.append((path, priority))
-            elif priority >= 9:  # Create high-priority dirs
-                try:
-                    os.makedirs(path, exist_ok=True)
-                    valid_targets.append((path, priority))
-                except:
-                    pass
+            except Exception:
+                pass
         
         return valid_targets
     
@@ -417,12 +419,8 @@ users:
 
     def deploy_file_decoy(self, directory: str) -> Dict:
         """Deploy a single file decoy to a directory"""
-        decoy_names = [
-            'credentials.txt', 'employee_list.xlsx', 'passwords_backup.txt',
-            'financial_report_2025.xlsx', 'production.env', 'db_dump.sql',
-            'ssh_keys_backup.zip', 'api_keys.json', 'config_backup.yaml'
-        ]
-        filename = random.choice(decoy_names)
+        # Use the smart generator to get realistic names instead of hardcoded ones
+        filename = self._generate_random_filename()
         filepath = os.path.join(directory, filename)
 
         # Skip if file already exists or path already used
@@ -482,6 +480,10 @@ If accessed, an alert will be triggered.
         print("="*60)
         print(f"   OS: {self.os_type}")
         
+        # Parse config
+        requested_decoys = deployment_config.get('initial_decoys', 3) if deployment_config else 3
+        requested_honeytokens = deployment_config.get('initial_honeytokens', 5) if deployment_config else 5
+        
         # Check if already deployed
         manifest_file = os.path.join(self.base_dir, ".honeytoken_manifest.json")
         if os.path.exists(manifest_file):
@@ -491,20 +493,17 @@ If accessed, an alert will be triggered.
                     manifest = json.load(f)
                     self.honeytokens = manifest.get('honeytokens', [])
                     self.decoys = manifest.get('decoys', [])
-                    deployed_count = len(self.honeytokens) + len(self.decoys)
-                    print(f"   ✓ Loaded {len(self.decoys)} decoys and {len(self.honeytokens)} honeytokens from manifest")
-                    print("   ⏭️  Skipping deployment (no duplicates)")
-                    return deployed_count > 0
+                    self.deployed_paths = [h['path'] for h in self.honeytokens + self.decoys]
             except Exception as e:
                 print(f"   Warning: Could not load manifest: {e}")
-        
-        # Parse config
-        initial_decoys = 3
-        initial_honeytokens = 5
-        
-        if deployment_config:
-            initial_decoys = deployment_config.get('initial_decoys', 3)
-            initial_honeytokens = deployment_config.get('initial_honeytokens', 5)
+
+        initial_decoys = max(0, requested_decoys - len(self.decoys))
+        initial_honeytokens = max(0, requested_honeytokens - len(self.honeytokens))
+
+        if initial_decoys == 0 and initial_honeytokens == 0:
+            print(f"   ✓ Already have {len(self.decoys)} decoys and {len(self.honeytokens)} honeytokens (matches or exceeds requested)")
+            print("   ⏭️  Skipping deployment (no duplicates)")
+            return True
         
         total_to_deploy = initial_decoys + initial_honeytokens
         print(f"   Deploying: {initial_decoys} decoys + {initial_honeytokens} honeytokens")
@@ -528,10 +527,14 @@ If accessed, an alert will be triggered.
         print("\n   Deploying file decoys...")
         deployed_count = 0
 
+        # We want to spread them out uniformly, so let's shuffle and round-robin targets
+        random.shuffle(targets)
+        target_idx = 0
+
         for _ in range(initial_decoys):
             if targets:
-                weights = [t[1] for t in targets]
-                directory = random.choices(targets, weights=weights, k=1)[0][0]
+                directory = targets[target_idx % len(targets)][0]
+                target_idx += 1
             else:
                 directory = self.base_dir
 
@@ -543,11 +546,9 @@ If accessed, an alert will be triggered.
         honeytoken_count = 0
         
         for _ in range(initial_honeytokens):
-            # Select directory (weighted by priority)
             if targets:
-                # Bias toward high-priority directories
-                weights = [t[1] for t in targets]
-                directory = random.choices(targets, weights=weights, k=1)[0][0]
+                directory = targets[target_idx % len(targets)][0]
+                target_idx += 1
             else:
                 directory = self.base_dir
             
