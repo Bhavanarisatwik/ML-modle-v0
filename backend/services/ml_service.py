@@ -22,13 +22,15 @@ class MLService:
     async def predict_attack(self, log_data: Dict[str, Any]) -> Optional[MLPrediction]:
         """
         Send log data to ML API for attack prediction
-        
-        Args:
-            log_data: Dictionary with ML input features
-        
-        Returns:
-            MLPrediction (never None - uses fallback if ML fails)
         """
+        # FORCED TEST OVERRIDE 2: Prove logic is hitting this code
+        return MLPrediction(
+            attack_type="Injection",
+            risk_score=9,
+            confidence=0.99,
+            is_anomaly=True
+        )
+
         try:
             # Convert log data to ML features
             ml_input = self._convert_to_ml_features(log_data)
