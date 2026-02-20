@@ -125,3 +125,45 @@ async def login(credentials: UserLogin):
     except Exception as e:
         logger.error(f"Error logging in user: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/profile", response_model=UserResponse)
+async def update_profile(profile_data: dict):
+    """
+    Update user profile and notification settings
+    """
+    try:
+        user_id = profile_data.get("id")
+        if not user_id:
+            raise HTTPException(status_code=400, detail="User ID is required")
+            
+        update_fields = {}
+        if "name" in profile_data:
+            update_fields["name"] = profile_data["name"]
+        if "email" in profile_data:
+            update_fields["email"] = profile_data["email"]
+        if "notifications" in profile_data:
+            update_fields["notifications"] = profile_data["notifications"]
+            
+        if not update_fields:
+            raise HTTPException(status_code=400, detail="No fields to update")
+            
+        success = await db_service.update_user(user_id, update_fields)
+        if not success:
+            raise HTTPException(status_code=404, detail="User not found or update failed")
+            
+        # Get updated user
+        updated_user = await db_service.get_user_by_id(user_id)
+        if not updated_user:
+            raise HTTPException(status_code=404, detail="User not found after update")
+            
+        return UserResponse(
+            id=updated_user["id"],
+            email=updated_user["email"],
+            created_at=updated_user["created_at"]
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating user profile: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

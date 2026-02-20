@@ -3,21 +3,23 @@ Agent Routes
 Endpoints for endpoint agent events with node validation
 """
 
-from fastapi import APIRouter, HTTPException, Header, Request
+from fastapi import APIRouter, HTTPException, Header, Request, BackgroundTasks
 from fastapi.responses import FileResponse
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict, Any
 import logging
 import json
 import zipfile
 import io
 from pathlib import Path
+import asyncio
 
 from backend.models.log_models import AgentEvent, Alert
 from backend.services.db_service import db_service
 from backend.services.ml_service import ml_service
 from backend.services.node_service import node_service
 from backend.services.node_auth import validate_node_access
+from backend.services.notification_service import notification_service
 from backend.config import ALERT_RISK_THRESHOLD, AUTH_ENABLED, DEMO_USER_ID
 
 logger = logging.getLogger(__name__)
@@ -110,6 +112,9 @@ async def receive_agent_event(
             )
             await db_service.create_alert(alert)
             alert_created = True
+            
+            # Fire notifications asynchronously across all channels (Slack/Email/WhatsApp)
+            asyncio.create_task(notification_service.broadcast_alert(alert))
         
         # Step 6: Update attacker profile (use hostname as IP)
         if ml_prediction:

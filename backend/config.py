@@ -76,3 +76,23 @@ JWT_ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
 # Demo user (when AUTH_ENABLED = False)
 DEMO_USER_ID = "demo-user"
 DEMO_USER_EMAIL = "demo@decoyvers.local"
+
+# ---------------------------------------------------------
+# Notification Integrations
+# ---------------------------------------------------------
+
+# Slack Integration
+SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
+
+# Email Integration (SMTP)
+SMTP_SERVER = os.getenv("SMTP_SERVER")
+SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
+SMTP_USER = os.getenv("SMTP_USER")
+SMTP_PASS = os.getenv("SMTP_PASS")
+ALERT_EMAIL_TO = os.getenv("ALERT_EMAIL_TO")
+
+# WhatsApp Integration (Twilio)
+TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
+TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
+TWILIO_WHATSAPP_NUMBER = os.getenv("TWILIO_WHATSAPP_NUMBER")
+ALERT_WHATSAPP_TO = os.getenv("ALERT_WHATSAPP_TO")

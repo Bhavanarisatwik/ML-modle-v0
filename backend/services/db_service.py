@@ -98,6 +98,20 @@ class DatabaseService:
         except Exception as e:
             logger.error(f"Error getting user by ID: {e}")
             return None
+            
+    async def update_user(self, user_id: str, update_data: Dict[str, Any]) -> bool:
+        """Update existing user data"""
+        try:
+            if self.db is None:
+                return False
+            await self.db[USERS_COLLECTION].update_one(
+                {"id": user_id},
+                {"$set": update_data}
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Error updating user: {e}")
+            return False
     
     # ==================== NODE OPERATIONS ====================
     

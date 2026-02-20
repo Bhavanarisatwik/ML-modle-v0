@@ -20,6 +20,18 @@ class UserLogin(BaseModel):
     email: EmailStr
     password: str
 
+class NotificationSettings(BaseModel):
+    """Notification preferences for a user"""
+    slackWebhook: Optional[str] = None
+    emailAlertTo: Optional[str] = None
+    whatsappNumber: Optional[str] = None
+
+class UserProfileUpdate(BaseModel):
+    """User profile update request"""
+    name: Optional[str] = None
+    email: Optional[EmailStr] = None
+    notifications: Optional[NotificationSettings] = None
+
 
 class UserResponse(BaseModel):
     """User response (without password)"""
