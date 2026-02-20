@@ -22,16 +22,13 @@ class MLService:
     async def predict_attack(self, log_data: Dict[str, Any]) -> Optional[MLPrediction]:
         """
         Send log data to ML API for attack prediction
+        
+        Args:
+            log_data: Dictionary with ML input features
+        
+        Returns:
+            MLPrediction (never None - uses fallback if ML fails)
         """
-        # FORCED TEST OVERRIDE: Prove logic is hitting this code
-        if log_data.get("username") == "attacker_sim":
-             return MLPrediction(
-                attack_type="Injection",
-                risk_score=9,
-                confidence=0.99,
-                is_anomaly=True
-            )
-
         try:
             # Convert log data to ML features
             ml_input = self._convert_to_ml_features(log_data)
@@ -40,7 +37,7 @@ class MLService:
             response = requests.post(
                 self.predict_url,
                 json=ml_input,
-                timeout=3  # 3-second timeout to prevent hanging
+                timeout=15  # Increased timeout for ML microservice cold starts
             )
             
             if response.status_code == 200:
@@ -52,11 +49,11 @@ class MLService:
                     is_anomaly=result["is_anomaly"]
                 )
             else:
-                logger.error(f"ML API returned status {response.status_code}")
+                logger.error(f"ML API returned status {response.status_code}: {response.text}")
                 return self._get_fallback_prediction()
                 
         except requests.exceptions.Timeout:
-            logger.error(f"ML API timeout (>{3}s) - using fallback prediction")
+            logger.error(f"ML API timeout (>{15}s) - using fallback prediction")
             return self._get_fallback_prediction()
         except requests.exceptions.ConnectionError:
             logger.error(f"ML API connection failed - using fallback prediction")
@@ -87,17 +84,6 @@ class MLService:
         """
         Convert raw log metadata into numeric features for the ML model.
         """
-        # FORCED TEST OVERRIDE: If we see sim user, force high risk to prove model works
-        if log_data.get("username") == "attacker_sim":
-             return {
-                "failed_logins": 120,
-                "request_rate": 500,
-                "commands_count": 20,
-                "sql_payload": 1,
-                "honeytoken_access": 1,
-                "session_time": 600
-            }
-
         service = str(log_data.get("service", "unknown")).lower()
         activity = str(log_data.get("activity", "unknown")).lower()
         payload = str(log_data.get("payload", "")).lower()
