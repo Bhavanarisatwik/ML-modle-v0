@@ -347,6 +347,11 @@ async def download_agent(
             "backend_url": "https://ml-modle-v0-1.onrender.com/api",
             "express_backend_url": "https://decoyverse-v2.onrender.com/api",
             "version": "2.0.0",
+            "deployment_config": node.get("deployment_config", {
+                "initial_decoys": 3,
+                "initial_honeytokens": 5,
+                "deploy_path": None
+            }),
             "endpoints": {
                 "agent_alert": "/api/agent-alert",
                 "register": "/api/agent/register",

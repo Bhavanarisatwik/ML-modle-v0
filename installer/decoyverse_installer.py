@@ -191,6 +191,10 @@ def get_config_interactive():
     node_id = input("  Node ID: ").strip()
     api_key = input("  API Key: ").strip()
     node_name = input("  Node Name (optional): ").strip() or "DecoyVerse Node"
+    decoys_input = input("  Number of file decoys (default 3): ").strip()
+    initial_decoys = int(decoys_input) if decoys_input.isdigit() else 3
+    honeytokens_input = input("  Number of honeytokens (default 5): ").strip()
+    initial_honeytokens = int(honeytokens_input) if honeytokens_input.isdigit() else 5
     
     if not node_id or not api_key:
         print_error("Node ID and API Key are required!")
@@ -205,8 +209,8 @@ def get_config_interactive():
         "express_backend_url": EXPRESS_BACKEND_URL,
         "ml_service_url": ML_SERVICE_URL,
         "deployment_config": {
-            "initial_decoys": 3,
-            "initial_honeytokens": 5,
+            "initial_decoys": initial_decoys,
+            "initial_honeytokens": initial_honeytokens,
             "deploy_path": None
         }
     }
@@ -219,8 +223,10 @@ def main():
     parser.add_argument("--node-id", help="Node ID")
     parser.add_argument("--api-key", help="Node API Key")
     parser.add_argument("--node-name", default="DecoyVerse Node", help="Node name")
+    parser.add_argument("--initial-decoys", type=int, default=3, help="Number of file decoys")
+    parser.add_argument("--initial-honeytokens", type=int, default=5, help="Number of honeytokens")
     parser.add_argument("--no-run", action="store_true", help="Don't run agent after install")
-    args = parser.parse_args()
+    args, unknown = parser.parse_known_args() # Use parse_known_args to avoid crashing on older clients
     
     # Check for admin
     if not is_admin():
@@ -247,8 +253,8 @@ def main():
             "express_backend_url": EXPRESS_BACKEND_URL,
             "ml_service_url": ML_SERVICE_URL,
             "deployment_config": {
-                "initial_decoys": 3,
-                "initial_honeytokens": 5,
+                "initial_decoys": args.initial_decoys,
+                "initial_honeytokens": args.initial_honeytokens,
                 "deploy_path": None
             }
         }
