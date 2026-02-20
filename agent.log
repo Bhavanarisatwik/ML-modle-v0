@@ -1,0 +1,3 @@
+2026-02-20 16:00:30,521 INFO AgentConfig: ✓ Configuration loaded: None
+2026-02-20 16:00:30,569 INFO AgentConfig: 📤 Registering 6 deployed decoys...
+2026-02-20 16:00:35,067 WARNING AgentConfig: ⚠️ Decoy registration returned: 404

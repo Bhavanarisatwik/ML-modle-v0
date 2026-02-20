@@ -1,0 +1,61 @@
+{
+  "deployed_at": "2026-02-20T16:00:30.555277",
+  "os": "windows",
+  "count": 6,
+  "decoys": [
+    {
+      "type": "file",
+      "file_name": "passwords_backup.txt",
+      "path": "C:\\Users\\satwi\\.docker\\passwords_backup.txt",
+      "size": 147,
+      "created": "2026-02-20T16:00:30.548492",
+      "category": "file"
+    },
+    {
+      "type": "file",
+      "file_name": "api_keys.json",
+      "path": "C:\\Users\\satwi\\.azure\\api_keys.json",
+      "size": 147,
+      "created": "2026-02-20T16:00:30.549494",
+      "category": "file"
+    }
+  ],
+  "honeytokens": [
+    {
+      "type": "honeytoken",
+      "file_name": "environment_9_staging",
+      "path": "C:\\Users\\satwi\\Downloads\\environment_9_staging",
+      "size": 402,
+      "created": "2026-02-20T16:00:30.551498",
+      "category": "env",
+      "token_type": "env"
+    },
+    {
+      "type": "honeytoken",
+      "file_name": "twilio_8_2024.yml",
+      "path": "C:\\Users\\satwi\\.aws\\twilio_8_2024.yml",
+      "size": 363,
+      "created": "2026-02-20T16:00:30.551498",
+      "category": "api",
+      "token_type": "api"
+    },
+    {
+      "type": "honeytoken",
+      "file_name": "backup_copy.txt",
+      "path": "C:\\Users\\satwi\\.ssh\\backup_copy.txt",
+      "size": 549,
+      "created": "2026-02-20T16:00:30.553036",
+      "category": "database",
+      "token_type": "database"
+    },
+    {
+      "type": "honeytoken",
+      "file_name": "development_old.yml",
+      "path": "C:\\Users\\satwi\\Desktop\\development_old.yml",
+      "size": 317,
+      "created": "2026-02-20T16:00:30.555277",
+      "category": "env",
+      "token_type": "env"
+    }
+  ]
+}
