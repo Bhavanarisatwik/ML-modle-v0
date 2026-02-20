@@ -84,6 +84,10 @@ class MLService:
         """
         Convert raw log metadata into numeric features for the ML model.
         """
+        import logging
+        log_logger = logging.getLogger("ml_service_debug")
+        log_logger.info(f"ML INPUT DATA: {log_data}")
+
         service = str(log_data.get("service", "unknown")).lower()
         activity = str(log_data.get("activity", "unknown")).lower()
         payload = str(log_data.get("payload", "")).lower()
