@@ -15,22 +15,51 @@ class DatasetGenerator:
         self.data = []
     
     def generate_row(self) -> dict:
-        """Generate a single row of synthetic cybersecurity data"""
-        failed_logins = np.random.randint(0, 151)
-        request_rate = np.random.randint(1, 601)
-        commands_count = np.random.randint(0, 21)
-        sql_payload = np.random.choice([0, 1], p=[0.85, 0.15])
-        honeytoken_access = np.random.choice([0, 1], p=[0.9, 0.1])
-        session_time = np.random.randint(10, 601)
+        """Generate a single row of synthetic cybersecurity data with realistic behavior"""
+        # Determine behavior profile
+        profile = np.random.choice(['Normal', 'BruteForce', 'Injection', 'DataExfil', 'Recon'], p=[0.6, 0.15, 0.05, 0.1, 0.1])
         
-        # Assign label based on rules
-        label = self._assign_label(
-            sql_payload, 
-            failed_logins, 
-            honeytoken_access, 
-            request_rate
-        )
-        
+        if profile == 'Normal':
+            failed_logins = np.random.randint(0, 5)
+            request_rate = np.random.randint(1, 50)
+            commands_count = np.random.randint(0, 5)
+            sql_payload = 0
+            honeytoken_access = 0
+            session_time = np.random.randint(60, 600)
+            label = 'Normal'
+        elif profile == 'BruteForce':
+            failed_logins = np.random.randint(50, 150)
+            request_rate = np.random.randint(100, 300)
+            commands_count = np.random.randint(0, 2)
+            sql_payload = 0
+            honeytoken_access = 0
+            session_time = np.random.randint(10, 120)
+            label = 'BruteForce'
+        elif profile == 'Injection':
+            failed_logins = np.random.randint(0, 10)
+            request_rate = np.random.randint(20, 100)
+            commands_count = np.random.randint(10, 20)
+            sql_payload = 1
+            honeytoken_access = np.random.choice([0, 1], p=[0.7, 0.3])
+            session_time = np.random.randint(30, 300)
+            label = 'Injection'
+        elif profile == 'DataExfil':
+            failed_logins = np.random.randint(0, 3)
+            request_rate = np.random.randint(5, 40)
+            commands_count = np.random.randint(1, 10)
+            sql_payload = 0
+            honeytoken_access = 1
+            session_time = np.random.randint(120, 600)
+            label = 'DataExfil'
+        else: # Recon
+            failed_logins = np.random.randint(0, 15)
+            request_rate = np.random.randint(400, 600)
+            commands_count = np.random.randint(1, 5)
+            sql_payload = 0
+            honeytoken_access = 0
+            session_time = np.random.randint(10, 60)
+            label = 'Recon'
+            
         return {
             'failed_logins': failed_logins,
             'request_rate': request_rate,
@@ -55,9 +84,9 @@ class DatasetGenerator:
         else:
             return 'Normal'
     
-    def generate_dataset(self, num_rows: int = 1000) -> pd.DataFrame:
+    def generate_dataset(self, num_rows: int = 10000) -> pd.DataFrame:
         """Generate complete dataset with specified number of rows"""
-        print(f"Generating {num_rows} rows of cybersecurity attack data...")
+        print(f"Generating {num_rows} rows of realistic cybersecurity attack data...")
         
         data = [self.generate_row() for _ in range(num_rows)]
         df = pd.DataFrame(data)
