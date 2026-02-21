@@ -114,8 +114,10 @@ def find_python():
                 return python_path
         except:
             continue
-    
-    return None
+            
+    # If all else fails, use sys.executable (which is the PyInstaller bootloader during install)
+    # But we want the system python, not the installer exe.
+    return "python"
 
 
 def get_pythonw(python_cmd: str) -> str:
@@ -215,14 +217,14 @@ def register_scheduled_task(pythonw_cmd: str) -> bool:
 
         # Create Agent tasks
         create_cmd = (
-            f"schtasks /Create /TN {task_name} /TR \"'{pythonw_cmd}' '{agent_path}'\" "
-            f"/SC ONLOGON /RL HIGHEST /F /RL HIGHEST /IT"
+            f"schtasks /Create /TN {task_name} /TR \"\\\"{pythonw_cmd}\\\" \\\"{agent_path}\\\"\" "
+            f"/SC ONLOGON /RL HIGHEST /F /IT"
         )
         subprocess.run(create_cmd, shell=True, check=True, capture_output=True)
 
         # Add startup trigger
         create_startup = (
-            f"schtasks /Create /TN {task_name} /TR \"'{pythonw_cmd}' '{agent_path}'\" "
+            f"schtasks /Create /TN {task_name} /TR \"\\\"{pythonw_cmd}\\\" \\\"{agent_path}\\\"\" "
             f"/SC ONSTART /RL HIGHEST /F /IT"
         )
         subprocess.run(create_startup, shell=True, check=True, capture_output=True)
@@ -230,8 +232,8 @@ def register_scheduled_task(pythonw_cmd: str) -> bool:
         # Create Zeek tasks
         zeek_cmd = "wsl.exe -d Ubuntu -u root bash /usr/local/bin/start_zeek_bridge.sh"
         zeek_create = (
-            f"schtasks /Create /TN DecoyVerseZeekSensor /TR \"{zeek_cmd}\" "
-            f"/SC ONSTART /RL HIGHEST /F /IT"
+            f"schtasks /Create /TN DecoyVerseZeekSensor /TR \"\\\"{zeek_cmd}\\\"\" "
+            f"/SC ONSTART /RL HIGHEST /F"
         )
         subprocess.run(zeek_create, shell=True, check=True, capture_output=True)
         
