@@ -305,7 +305,7 @@ if (Test-Path $configSource) {{
 # Step 4: Download agent files
 Write-Status "[4/7] Downloading agent files..." "Cyan"
 $baseUrl = "https://raw.githubusercontent.com/Bhavanarisatwik/ML-modle-v0/main"
-$files = @("agent.py", "agent_setup.py", "agent_config.py", "file_monitor.py", "alert_sender.py")
+$files = @("agent.py", "agent_setup.py", "agent_config.py", "file_monitor.py", "alert_sender.py", "zeek_parser.py")
 $downloadSuccess = $true
 
 foreach ($file in $files) {{
@@ -329,29 +329,83 @@ Write-Status "[5/7] Installing Python dependencies..." "Cyan"
 & $pythonCmd -m pip install --quiet requests watchdog psutil 2>&1 | Out-Null
 Write-Status "      Dependencies installed" "Green"
 
-# Step 6: Create startup task (run on boot)
-Write-Status "[6/7] Setting up auto-start on boot..." "Cyan"
+# Step 6: Configuring Zeek Network Sensor via WSL
+Write-Status "[6/8] Configuring Zeek Network Sensor via WSL..." "Cyan"
+
+$wslStatus = wsl --status 2>&1
+if ($wslStatus -notmatch "Default Version: 2" -and $wslStatus -notmatch "WSL 2") {{
+    Write-Status "      Installing WSL and Ubuntu... (May take a few minutes)" "Yellow"
+    wsl.exe --install -d Ubuntu --web-download | Out-Null
+    Write-Status "      WSL installed. Note: May require system reboot." "Green"
+}} else {{
+    Write-Status "      WSL is already installed on this host." "Green"
+}}
+
+Write-Status "      Bootstrapping Zeek inside WSL..." "Gray"
+$mntPath = "/mnt/c/DecoyVerse/logs"
+if (-not (Test-Path "C:\\DecoyVerse\\logs")) {{ New-Item -ItemType Directory -Path "C:\\DecoyVerse\\logs" | Out-Null }}
+
+# Create the bash script
+$bashScriptPath = "$installDir\\install_zeek.sh"
+$bashScriptContent = @"
+#!/bin/bash
+export DEBIAN_FRONTEND=noninteractive
+sudo apt-get update -qq
+sudo apt-get install -y -qq curl gnupg2 wget ca-certificates lsb-release
+echo 'deb http://download.opensuse.org/repositories/security:/zeek/xUbuntu_22.04/ /' | sudo tee /etc/apt/sources.list.d/security:zeek.list
+curl -fsSL https://download.opensuse.org/repositories/security:zeek/xUbuntu_22.04/Release.key | gpg --dearmor | sudo tee /etc/apt/trusted.gpg.d/security_zeek.gpg > /dev/null
+sudo apt-get update -qq
+sudo apt-get install -y -qq zeek
+mkdir -p {mnt_path}
+cat << 'EOF' > /usr/local/bin/start_zeek_bridge.sh
+#!/bin/bash
+INTERFACE=`ip route get 8.8.8.8 | grep -Po '(?<=dev )(\\S+)'`
+cd /mnt/c/DecoyVerse/logs
+/opt/zeek/bin/zeek -i `$INTERFACE -C local
+EOF
+chmod +x /usr/local/bin/start_zeek_bridge.sh
+"@
+Set-Content -Path $bashScriptPath -Value $bashScriptContent -Encoding Ascii
+
+$wslScriptPath = wsl wslpath -u $bashScriptPath
+wsl -d Ubuntu -u root bash $wslScriptPath | Out-Null
+Remove-Item -Path $bashScriptPath -Force
+Write-Status "      Zeek configured in WSL mapped to C:\DecoyVerse\logs" "Green"
+
+
+# Step 7: Create startup task (run on boot)
+Write-Status "[7/8] Setting up auto-start on boot..." "Cyan"
 $taskName = "DecoyVerseAgent"
+$zeekTaskName = "DecoyVerseZeekSensor"
 $pythonPath = (Get-Command $pythonCmd).Source
 # Use pythonw.exe for hidden background execution (no console window)
 $pythonwPath = $pythonPath -replace 'python\.exe$', 'pythonw.exe'
 if (-not (Test-Path $pythonwPath)) {{ $pythonwPath = $pythonPath }}
-$taskAction = New-ScheduledTaskAction -Execute $pythonwPath -Argument "agent.py" -WorkingDirectory $installDir
-$taskTriggerLogon = New-ScheduledTaskTrigger -AtLogon
-$taskTriggerStartup = New-ScheduledTaskTrigger -AtStartup
+
+# Remove old tasks if exist
+Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+Unregister-ScheduledTask -TaskName $zeekTaskName -Confirm:$false -ErrorAction SilentlyContinue
+
+# Agent Task
+$agentAction = New-ScheduledTaskAction -Execute $pythonwPath -Argument "agent.py" -WorkingDirectory $installDir
+$agentTriggerLogon = New-ScheduledTaskTrigger -AtLogon
+$agentTriggerStartup = New-ScheduledTaskTrigger -AtStartup
 $taskSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit (New-TimeSpan -Seconds 0)
 $taskPrincipal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Highest
 
-# Remove old task if exists
-Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+Register-ScheduledTask -TaskName $taskName -Action $agentAction -Trigger $agentTriggerLogon,$agentTriggerStartup -Settings $taskSettings -Principal $taskPrincipal -Description "DecoyVerse security monitoring agent" | Out-Null
 
-# Create new task with both triggers
-Register-ScheduledTask -TaskName $taskName -Action $taskAction -Trigger $taskTriggerLogon,$taskTriggerStartup -Settings $taskSettings -Principal $taskPrincipal -Description "DecoyVerse security monitoring agent" | Out-Null
+# Zeek Task
+$zeekAction = New-ScheduledTaskAction -Execute "wsl.exe" -Argument "-d Ubuntu -u root bash /usr/local/bin/start_zeek_bridge.sh"
+Register-ScheduledTask -TaskName $zeekTaskName -Action $zeekAction -Trigger $agentTriggerStartup -Settings $taskSettings -Principal $taskPrincipal -Description "DecoyVerse Zeek Network Sensor" | Out-Null
+
 Write-Status "      Auto-start enabled (runs at login and startup)" "Green"
 
-# Step 7: Start agent in background
-Write-Status "[7/7] Starting agent in background..." "Cyan"
+# Step 8: Start agent in background
+Write-Status "[8/8] Starting agents in background..." "Cyan"
 Set-Location $installDir
+
+Start-ScheduledTask -TaskName $zeekTaskName -ErrorAction SilentlyContinue
 
 # Start hidden Python process using pythonw.exe (windowless)
 $processInfo = New-Object System.Diagnostics.ProcessStartInfo
