@@ -29,7 +29,8 @@ AGENT_FILES = [
     "agent_setup.py", 
     "agent_config.py",
     "file_monitor.py",
-    "alert_sender.py"
+    "alert_sender.py",
+    "zeek_parser.py"
 ]
 
 REQUIRED_PACKAGES = ["requests", "watchdog", "psutil"]
@@ -153,6 +154,52 @@ def write_config(config_data):
     return True
 
 
+def install_wsl_and_zeek() -> bool:
+    """Automate WSL and Zeek installation on Windows"""
+    try:
+        # Check WSL status
+        wsl_status = subprocess.run(["wsl", "--status"], capture_output=True, text=True)
+        if "Default Version: 2" not in wsl_status.stdout and "WSL 2" not in wsl_status.stdout:
+            print("      Installing WSL and Ubuntu...")
+            subprocess.run(["wsl.exe", "--install", "-d", "Ubuntu", "--web-download"], capture_output=True)
+            print_success("WSL installed. Note: May require system reboot.")
+        else:
+            print_success("WSL is already installed on this host.")
+
+        print("      Bootstrapping Zeek inside WSL...")
+        mnt_path = "/mnt/c/DecoyVerse/logs"
+        os.makedirs(r"C:\DecoyVerse\logs", exist_ok=True)
+
+        bash_script = f"""#!/bin/bash
+export DEBIAN_FRONTEND=noninteractive
+sudo apt-get update -qq
+sudo apt-get install -y -qq curl gnupg2 wget ca-certificates lsb-release
+echo 'deb http://download.opensuse.org/repositories/security:/zeek/xUbuntu_22.04/ /' | sudo tee /etc/apt/sources.list.d/security:zeek.list
+curl -fsSL https://download.opensuse.org/repositories/security:zeek/xUbuntu_22.04/Release.key | gpg --dearmor | sudo tee /etc/apt/trusted.gpg.d/security_zeek.gpg > /dev/null
+sudo apt-get update -qq
+sudo apt-get install -y -qq zeek
+mkdir -p {mnt_path}
+cat << 'EOF' > /usr/local/bin/start_zeek_bridge.sh
+#!/bin/bash
+INTERFACE=\\$(ip route get 8.8.8.8 | grep -Po '(?<=dev )(\\S+)')
+cd {mnt_path}
+/opt/zeek/bin/zeek -i \\$INTERFACE -C local
+EOF
+chmod +x /usr/local/bin/start_zeek_bridge.sh
+"""
+        script_path = os.path.join(os.environ.get("TEMP", r"C:\Temp"), "install_zeek.sh")
+        with open(script_path, "w", encoding="utf-8", newline='\n') as f:
+            f.write(bash_script)
+            
+        wsl_script_path = subprocess.run(["wsl", "wslpath", "-u", script_path], capture_output=True, text=True).stdout.strip()
+        subprocess.run(["wsl", "-d", "Ubuntu", "-u", "root", "bash", wsl_script_path], capture_output=True)
+        print_success(r"Zeek configured in WSL mapped to C:\DecoyVerse\logs")
+        return True
+    except Exception as e:
+        print_error(f"WSL/Zeek setup failed: {e}")
+        return False
+
+
 def register_scheduled_task(pythonw_cmd: str) -> bool:
     """Create scheduled task to run agent in background"""
     try:
@@ -162,20 +209,32 @@ def register_scheduled_task(pythonw_cmd: str) -> bool:
         subprocess.run([
             "schtasks", "/Delete", "/TN", task_name, "/F"
         ], capture_output=True)
+        subprocess.run([
+            "schtasks", "/Delete", "/TN", "DecoyVerseZeekSensor", "/F"
+        ], capture_output=True)
 
-        # Create task to run at logon and startup
+        # Create Agent tasks
         create_cmd = (
             f"schtasks /Create /TN {task_name} /TR \"\"{pythonw_cmd}\" \"{agent_path}\"\" "
             f"/SC ONLOGON /RL HIGHEST /F"
         )
         subprocess.run(create_cmd, shell=True, check=True, capture_output=True)
 
-        # Add startup trigger (separate trigger)
+        # Add startup trigger
         create_startup = (
             f"schtasks /Create /TN {task_name} /TR \"\"{pythonw_cmd}\" \"{agent_path}\"\" "
             f"/SC ONSTART /RL HIGHEST /F"
         )
         subprocess.run(create_startup, shell=True, check=True, capture_output=True)
+        
+        # Create Zeek tasks
+        zeek_cmd = "wsl.exe -d Ubuntu -u root bash /usr/local/bin/start_zeek_bridge.sh"
+        zeek_create = (
+            f"schtasks /Create /TN DecoyVerseZeekSensor /TR \"{zeek_cmd}\" "
+            f"/SC ONSTART /RL HIGHEST /F"
+        )
+        subprocess.run(zeek_create, shell=True, check=True, capture_output=True)
+        
         return True
     except Exception as e:
         print_error(f"Failed to create scheduled task: {e}")
@@ -272,7 +331,7 @@ def main():
             return
         print()
     
-    total_steps = 6
+    total_steps = 7
     
     # Step 1: Create directory
     print_step(1, total_steps, "Creating installation directory...")
@@ -323,9 +382,16 @@ def main():
     else:
         print_error("Some packages may have failed to install")
     
-    # Step 6: Register auto-start task and run agent
+    # Step 6: Automate Zeek Virtual Sensor via WSL
+    print_step(6, total_steps, "Configuring Zeek Network Sensor via WSL...")
+    if install_wsl_and_zeek():
+        print_success("Network analysis engine deployed")
+    else:
+        print_error("Network analysis engine may have failed to configure")
+        
+    # Step 7: Register auto-start task and run agent
     if args.no_run:
-        print_step(6, total_steps, "Registering auto-start task...")
+        print_step(7, total_steps, "Registering auto-start tasks...")
         register_scheduled_task(pythonw_cmd)
         print_success("Auto-start enabled")
         print()
@@ -335,14 +401,15 @@ def main():
         print("    pythonw agent.py")
         print("=" * 55)
     else:
-        print_step(6, total_steps, "Registering auto-start task...")
+        print_step(7, total_steps, "Registering auto-start task...")
         if register_scheduled_task(pythonw_cmd):
             print_success("Auto-start enabled")
-        print_step(6, total_steps, "Starting DecoyVerse agent in background...")
+        print_step(7, total_steps, "Starting DecoyVerse agent and Zeek sensor in background...")
         print()
         print("=" * 55)
         print()
         try:
+            subprocess.run(["schtasks", "/Run", "/TN", "DecoyVerseZeekSensor"], capture_output=True)
             subprocess.run(["schtasks", "/Run", "/TN", "DecoyVerseAgent"], check=True)
             print_success("Agent started in background")
         except Exception as e:
