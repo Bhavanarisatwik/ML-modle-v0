@@ -16,6 +16,8 @@ from agent_setup import HoneytokenSetup
 from file_monitor import FileMonitor
 from alert_sender import AlertSender
 from agent_config import AgentConfig, AgentRegistration, ensure_agent_registered
+from zeek_parser import ZeekNetworkMonitor, simulate_zeek_ddos
+import threading
 
 
 class DeceptionAgent:
@@ -34,6 +36,9 @@ class DeceptionAgent:
         self.running = False
         self.last_heartbeat = 0.0
         self.log_path = Path(__file__).resolve().parent / "agent.log"
+        
+        # Network Layer Additions
+        self.zeek_monitor = ZeekNetworkMonitor(log_path="conn.log", api_url=ml_service_url)
 
     def log(self, message: str):
         """Append a log line to agent.log"""
@@ -100,8 +105,11 @@ class DeceptionAgent:
         print("👀 PHASE 2: MONITORING INITIALIZATION")
         print("="*70)
         
-        if self.monitor.initialize_monitoring():
-            print("\n✓ Monitoring initialized successfully")
+        l7_ok = self.monitor.initialize_monitoring()
+        l3_ok = self.zeek_monitor.initialize_monitoring()
+        
+        if l7_ok and l3_ok:
+            print("\n✓ Monitoring initialized successfully (Application + Network)")
             return True
         else:
             print("\n✗ Failed to initialize monitoring")
@@ -124,10 +132,21 @@ class DeceptionAgent:
     
     def run_once(self):
         """Run one monitoring cycle"""
-        alerts = self.monitor.monitor_once()
         
-        if alerts and self.sender.check_api_health():
-            for alert in alerts:
+        # 1. Check L7 Application Logs (Honeytokens & file access)
+        l7_alerts = self.monitor.monitor_once()
+        if l7_alerts and self.sender.check_api_health():
+            for alert in l7_alerts:
+                self.sender.send_alert(alert)
+
+        # 2. Check L3/L4 Network Logs (Zeek conn.log)
+        new_flows = self.zeek_monitor.process_new_lines()
+        l3_alerts = self.zeek_monitor.send_to_api_and_alert(new_flows)
+        
+        if l3_alerts and self.sender.check_api_health():
+            for alert in l3_alerts:
+                # Need to manually inject the monitor's alerts into the internal list for summary tracking
+                self.monitor.alerts.append(alert) 
                 self.sender.send_alert(alert)
 
     def heartbeat_cycle(self):
@@ -313,6 +332,10 @@ def demo_mode():
     print("="*70)
     print("\n💡 TIP: Manually open a file from system_cache folder to trigger alert")
     print("   Example: Open system_cache/aws_keys.txt\n")
+    print("🤖 Note: The Network Network module simulator will inject a mock DDoS packet in ~10s\n")
+    
+    # Start the DDoS simulator daemon thread
+    threading.Thread(target=simulate_zeek_ddos, daemon=True).start()
     
     # Run for 30 seconds in demo mode
     print("Monitoring for 30 seconds...\n")

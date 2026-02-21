@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from typing import Dict, Any, Optional
 import json
 
-from predict import AttackPredictor
+from predict import AttackPredictor, NetworkPredictor
 from feature_extractor import FeatureExtractor
 
 # Initialize FastAPI app
@@ -19,13 +19,15 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Initialize predictor (loaded once at startup)
+# Initialize predictors (loaded once at startup)
 try:
     predictor = AttackPredictor('.')
+    network_predictor = NetworkPredictor('backend')
     print("✓ Models loaded successfully")
 except Exception as e:
     print(f"✗ Error loading models: {e}")
     predictor = None
+    network_predictor = None
 
 
 # Request/Response Models
@@ -208,6 +210,65 @@ async def predict_batch(request: BatchPredictionRequest) -> BatchPredictionRespo
         )
 
 
+# --- NETWORK PREDICTION ---
+
+class NetworkFlowInput(BaseModel):
+    """Input model for network flow prediction (derived from Zeek log)"""
+    duration: float = Field(..., description="Flow duration")
+    orig_pkts: int = Field(..., description="Total Fwd Packets")
+    resp_pkts: int = Field(..., description="Total Bwd Packets")
+    orig_bytes: float = Field(..., description="Total Length of Fwd Packets")
+    resp_bytes: float = Field(..., description="Total Length of Bwd Packets")
+    flow_bytes_s: float = Field(..., description="Flow Bytes/s")
+    flow_pkts_s: float = Field(..., description="Flow Packets/s")
+    dst_port: int = Field(..., description="Destination Port")
+    protocol: int = Field(..., description="Protocol (e.g., 6 for TCP, 17 for UDP)")
+
+class NetworkPredictionResponse(BaseModel):
+    """Output model for network prediction response"""
+    label: str = Field(..., description="Predicted network attack type")
+    confidence: float = Field(..., description="Confidence of the prediction")
+
+class NetworkBatchRequest(BaseModel):
+    flows: list[NetworkFlowInput]
+
+class NetworkBatchResponse(BaseModel):
+    predictions: list[NetworkPredictionResponse]
+
+
+@app.post(
+    "/predict/network",
+    response_model=NetworkBatchResponse,
+    tags=["Prediction"],
+    summary="Predict network attack types from flow data"
+)
+async def predict_network_batch(request: NetworkBatchRequest) -> NetworkBatchResponse:
+    """
+    Process multiple network flows in a single request (L3/L4 layer).
+    """
+    if network_predictor is None:
+        raise HTTPException(status_code=500, detail="Network ML models not loaded")
+        
+    try:
+        results = []
+        for flow_data in request.flows:
+            # Predict
+            pred = network_predictor.predict(flow_data.dict())
+            results.append(NetworkPredictionResponse(
+                label=pred['label'],
+                confidence=pred['confidence']
+            ))
+            
+        return NetworkBatchResponse(predictions=results)
+    
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Network prediction error: {str(e)}"
+        )
+
+
+
 # Feature info endpoint
 @app.get("/features", tags=["System"])
 async def get_features():
@@ -238,6 +299,7 @@ async def root():
             "health": "/health",
             "single_prediction": "/predict",
             "batch_prediction": "/predict-batch",
+            "network_prediction": "/predict/network",
             "features": "/features",
             "docs": "/docs"
         }

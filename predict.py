@@ -112,6 +112,46 @@ class AttackPredictor:
         
         return risk_score
 
+class NetworkPredictor:
+    def __init__(self, model_dir: str = 'backend'):
+        """Load trained network models from disk"""
+        print("Loading trained network models...")
+        
+        # Load network models
+        self.classifier = joblib.load(os.path.join(model_dir, 'network_classifier.pkl'))
+        self.scaler = joblib.load(os.path.join(model_dir, 'network_scaler.pkl'))
+        self.label_encoder = joblib.load(os.path.join(model_dir, 'network_label_encoder.pkl'))
+        self.feature_columns = joblib.load(os.path.join(model_dir, 'network_feature_columns.pkl'))
+        
+        print("✓ All network models loaded successfully")
+
+    def predict(self, flow_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Predict network attack type
+        """
+        # Build features array in exact order of feature_columns
+        features = []
+        for col in self.feature_columns:
+            features.append(float(flow_data.get(col, 0.0)))
+            
+        features_array = np.array(features).reshape(1, -1)
+        
+        # Scale features
+        features_scaled = self.scaler.transform(features_array)
+        
+        # Predict
+        attack_encoded = self.classifier.predict(features_scaled)[0]
+        attack_type = self.label_encoder.inverse_transform([attack_encoded])[0]
+        
+        # Confidence
+        probabilities = self.classifier.predict_proba(features_scaled)[0]
+        confidence = float(np.max(probabilities))
+        
+        return {
+            'label': attack_type,
+            'confidence': confidence,
+            'features_used': self.feature_columns
+        }
 
 def predict_batch(log_list: list, model_dir: str = '.') -> list:
     """

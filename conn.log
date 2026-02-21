@@ -1,0 +1,10 @@
+#separator \x09
+#set_separator	,
+#empty_field	(empty)
+#unset_field	-
+#path	conn
+#fields	ts	uid	id.orig_h	id.orig_p	id.resp_h	id.resp_p	proto	service	duration	orig_bytes	resp_bytes	conn_state	local_orig	local_resp	missed_bytes	history	orig_pkts	orig_ip_bytes	resp_pkts	resp_ip_bytes	tunnel_parents
+#types	time	string	addr	port	addr	port	enum	string	interval	count	count	string	bool	bool	count	string	count	count	count	count	set[string]
+1612345678.000000	CZeekUid	10.0.0.5	54321	192.168.1.100	80	tcp	http	0.05	5000	100	S1	-	-	0	S	150	8000	2	120	(empty)
+1612345678.000000	CZeekUid	10.0.0.5	54321	192.168.1.100	80	tcp	http	0.05	5000	100	S1	-	-	0	S	150	8000	2	120	(empty)
+1612345678.000000	CZeekUid	10.0.0.5	54321	192.168.1.100	80	tcp	http	0.05	5000	100	S1	-	-	0	S	150	8000	2	120	(empty)
