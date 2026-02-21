@@ -23,14 +23,6 @@ class MLService:
         """
         Send log data to ML API for attack prediction
         """
-        # FORCED TEST OVERRIDE 2: Prove logic is hitting this code
-        return MLPrediction(
-            attack_type="Injection",
-            risk_score=9,
-            confidence=0.99,
-            is_anomaly=True
-        )
-
         try:
             # Convert log data to ML features
             ml_input = self._convert_to_ml_features(log_data)

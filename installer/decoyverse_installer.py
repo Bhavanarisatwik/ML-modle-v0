@@ -30,7 +30,6 @@ AGENT_FILES = [
     "agent_config.py",
     "file_monitor.py",
     "alert_sender.py",
-    "zeek_parser.py"
 ]
 
 REQUIRED_PACKAGES = ["requests", "watchdog", "psutil"]
@@ -333,7 +332,7 @@ def main():
             return
         print()
     
-    total_steps = 7
+    total_steps = 6
     
     # Step 1: Create directory
     print_step(1, total_steps, "Creating installation directory...")
@@ -384,16 +383,9 @@ def main():
     else:
         print_error("Some packages may have failed to install")
     
-    # Step 6: Automate Zeek Virtual Sensor via WSL
-    print_step(6, total_steps, "Configuring Zeek Network Sensor via WSL...")
-    if install_wsl_and_zeek():
-        print_success("Network analysis engine deployed")
-    else:
-        print_error("Network analysis engine may have failed to configure")
-        
-    # Step 7: Register auto-start task and run agent
+    # Step 6: Register auto-start task and run agent
     if args.no_run:
-        print_step(7, total_steps, "Registering auto-start tasks...")
+        print_step(6, total_steps, "Registering auto-start tasks...")
         register_scheduled_task(pythonw_cmd)
         print_success("Auto-start enabled")
         print()
@@ -403,15 +395,13 @@ def main():
         print("    pythonw agent.py")
         print("=" * 55)
     else:
-        print_step(7, total_steps, "Registering auto-start task...")
+        print_step(6, total_steps, "Starting DecoyVerse agent in background...")
         if register_scheduled_task(pythonw_cmd):
             print_success("Auto-start enabled")
-        print_step(7, total_steps, "Starting DecoyVerse agent and Zeek sensor in background...")
         print()
         print("=" * 55)
         print()
         try:
-            subprocess.run(["schtasks", "/Run", "/TN", "DecoyVerseZeekSensor"], capture_output=True)
             subprocess.run(["schtasks", "/Run", "/TN", "DecoyVerseAgent"], check=True)
             print_success("Agent started in background")
         except Exception as e:

@@ -12,13 +12,28 @@ from datetime import datetime
 class AlertSender:
     """Send alerts to backend API"""
     
-    def __init__(self, api_url: str = "https://ml-modle-v0-1.onrender.com"):
-        """Initialize alert sender"""
+    def __init__(self, api_url: str = "https://ml-modle-v0-1.onrender.com",
+                 node_id: str = None, node_api_key: str = None):
+        """Initialize alert sender with node authentication"""
         # Remove /api suffix if present - we'll add endpoints ourselves
         self.api_url = api_url.rstrip('/').replace('/api', '')
         self.alert_endpoint = f"{self.api_url}/api/agent-alert"
+        self.node_id = node_id
+        self.node_api_key = node_api_key
         self.alerts_sent = 0
         self.alerts_failed = 0
+    
+    def _get_headers(self) -> Dict[str, str]:
+        """Get request headers with node authentication"""
+        headers = {
+            "Content-Type": "application/json",
+        }
+        if self.node_id:
+            headers["X-Node-Id"] = self.node_id
+        if self.node_api_key:
+            headers["X-Node-Key"] = self.node_api_key
+            headers["X-Node-API-Key"] = self.node_api_key
+        return headers
     
     def check_api_health(self) -> bool:
         """Check if backend API is available"""
@@ -92,18 +107,36 @@ class AlertSender:
     def send_alert(self, alert: Dict[str, Any]) -> bool:
         """
         Send alert to backend API in AgentEvent format.
+        Includes X-Node-Id and X-Node-Key headers for authentication.
         """
         try:
-            print(f"\n📤 Sending alert to API...")
-            print(f"   File: {alert['file_accessed']}")
-            print(f"   Action: {alert['action']}")
+            file_accessed = alert.get('file_accessed', alert.get('filepath', 'unknown'))
+            action = alert.get('action', 'ACCESSED')
             
-            # Send the raw alert metadata to the backend
-            # Backend endpoint /api/agent-alert expects AgentEvent schema
+            print(f"\n📤 Sending alert to API...")
+            print(f"   File: {file_accessed}")
+            print(f"   Action: {action}")
+            
+            # Build AgentEvent-compatible payload
+            import platform
+            import os
+            payload = {
+                "timestamp": alert.get('timestamp', datetime.now().isoformat()),
+                "hostname": alert.get('hostname', platform.node()),
+                "username": alert.get('username', os.getenv('USERNAME', os.getenv('USER', 'unknown'))),
+                "file_accessed": os.path.basename(file_accessed),
+                "file_path": alert.get('file_path', alert.get('filepath', file_accessed)),
+                "action": action.upper(),
+                "severity": alert.get('severity', 'HIGH'),
+                "alert_type": alert.get('alert_type', 'HONEYTOKEN_ACCESS'),
+            }
+            
+            # Send with node auth headers
             response = requests.post(
                 self.alert_endpoint,
-                json=alert,
-                timeout=10
+                json=payload,
+                headers=self._get_headers(),
+                timeout=15
             )
             
             if response.status_code == 200:
@@ -129,18 +162,15 @@ class AlertSender:
         
         except requests.exceptions.Timeout:
             print(f"✗ API request timed out")
-            alert['backend_status'] = 'TIMEOUT'
             self.alerts_failed += 1
             return False
         except requests.exceptions.ConnectionError:
             print(f"✗ Cannot connect to API at {self.alert_endpoint}")
             print(f"   Make sure backend is running: python ml_api.py")
-            alert['backend_status'] = 'NO_CONNECTION'
             self.alerts_failed += 1
             return False
         except Exception as e:
             print(f"✗ Error sending alert: {e}")
-            alert['backend_status'] = f'ERROR_{type(e).__name__}'
             self.alerts_failed += 1
             return False
     

@@ -16,8 +16,6 @@ from agent_setup import HoneytokenSetup
 from file_monitor import FileMonitor
 from alert_sender import AlertSender
 from agent_config import AgentConfig, AgentRegistration, ensure_agent_registered
-from zeek_parser import ZeekNetworkMonitor, simulate_zeek_ddos
-import threading
 import threading
 
 
@@ -30,17 +28,19 @@ class DeceptionAgent:
         self.config = AgentConfig()
         self.setup = HoneytokenSetup(watch_dir)
         self.monitor = FileMonitor(watch_dir)
-        # Use ML service URL for alert scoring
-        ml_service_url = self.config.get_ml_service_url()
-        self.sender = AlertSender(api_url=ml_service_url)
+        # Use backend URL for alert reporting
+        backend_url = self.config.get_backend_url()
+        node_id = self.config.get_node_id()
+        node_api_key = self.config.get_node_api_key()
+        self.sender = AlertSender(
+            api_url=backend_url,
+            node_id=node_id,
+            node_api_key=node_api_key
+        )
         self.registration = AgentRegistration(self.config)
         self.running = False
         self.last_heartbeat = 0.0
         self.log_path = Path(__file__).resolve().parent / "agent.log"
-        
-        # Network Layer Additions (Zeek WSL Capture)
-        # In production this will be C:\\ProgramData\\DecoyVerse\\logs\\conn.log
-        self.network_monitor = ZeekNetworkMonitor(log_path="conn.log", api_url=ml_service_url)
 
     def log(self, message: str):
         """Append a log line to agent.log"""
@@ -84,6 +84,12 @@ class DeceptionAgent:
                 print("   ⚠️  No decoys were deployed (deployment returned empty list)")
                 return False
             
+            # Add deployed file paths to file monitor for access detection
+            deployed_paths = [d.get('file_path', d.get('path', '')) for d in deployed_decoys if d.get('file_path') or d.get('path')]
+            if deployed_paths:
+                self.monitor.add_files(deployed_paths)
+                print(f"   ✓ Added {len(deployed_paths)} files to monitoring")
+            
             print(f"   Registering {len(deployed_decoys)} decoys with backend...")
             success = self.registration.register_deployed_decoys(
                 node_id, 
@@ -108,10 +114,9 @@ class DeceptionAgent:
         print("="*70)
         
         l7_ok = self.monitor.initialize_monitoring()
-        l3_ok = self.network_monitor.initialize_monitoring()
         
-        if l7_ok and l3_ok:
-            print("\n✓ Monitoring initialized successfully (Application + Network)")
+        if l7_ok:
+            print("\n✓ File monitoring initialized successfully")
             return True
         else:
             print("\n✗ Failed to initialize monitoring")
@@ -135,21 +140,11 @@ class DeceptionAgent:
     def run_once(self):
         """Run one monitoring cycle"""
         
-        # 1. Check L7 Application Logs (Honeytokens & file access)
-        l7_alerts = self.monitor.monitor_once()
-        if l7_alerts and self.sender.check_api_health():
-            for alert in l7_alerts:
+        # Check honeytoken file access
+        alerts = self.monitor.monitor_once()
+        if alerts:
+            for alert in alerts:
                 self.sender.send_alert(alert)
-
-        # 2. Check L3/L4 Network Logs (Zeek conn.log)
-        new_flows = self.network_monitor.process_new_lines()
-        if new_flows:
-            l3_alerts = self.network_monitor.send_to_api_and_alert(new_flows)
-            
-            if l3_alerts and self.sender.check_api_health():
-                for alert in l3_alerts:
-                    self.monitor.alerts.append(alert) 
-                    self.sender.send_alert(alert)
 
     def heartbeat_cycle(self):
         """Send periodic heartbeat and handle uninstall requests"""
@@ -332,12 +327,8 @@ def demo_mode():
     print("\n" + "="*70)
     print("👀 Checking for file access...")
     print("="*70)
-    print("\n💡 TIP: Manually open a file from system_cache folder to trigger alert")
-    print("   Example: Open system_cache/aws_keys.txt\n")
-    print("🤖 Note: The Network Network module simulator will inject a mock DDoS packet in ~10s\n")
-    
-    # Start the DDoS simulator daemon thread
-    threading.Thread(target=simulate_zeek_ddos, daemon=True).start()
+    print("\n💡 TIP: Open a deployed honeytoken file to trigger an alert")
+    print("   Check your Documents, .aws, .ssh folders for decoy files\n")
     
     # Run for 30 seconds in demo mode
     print("Monitoring for 30 seconds...\n")

@@ -2,7 +2,7 @@
 
 
 a = Analysis(
-    ['C:\\Users\\satwi\\Downloads\\ML-modle v0\\installer\\decoyverse_installer.py'],
+    ['decoyverse_installer.py'],
     pathex=[],
     binaries=[],
     datas=[],

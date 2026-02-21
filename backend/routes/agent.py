@@ -4,7 +4,7 @@ Endpoints for endpoint agent events with node validation
 """
 
 from fastapi import APIRouter, HTTPException, Header, Request, BackgroundTasks
-from fastapi.responses import FileResponse
+from fastapi.responses import StreamingResponse
 from datetime import datetime
 from typing import Optional, Dict, Any
 import logging
@@ -504,8 +504,8 @@ curl -I https://api.decoyverse.example.com/health
         
         # Return ZIP file
         zip_buffer.seek(0)
-        return FileResponse(
-            iter([zip_buffer.getvalue()]),
+        return StreamingResponse(
+            io.BytesIO(zip_buffer.getvalue()),
             media_type="application/zip",
             headers={"Content-Disposition": f"attachment; filename=decoyverse-agent-{node_id}.zip"}
         )

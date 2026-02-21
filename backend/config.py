@@ -4,12 +4,19 @@ MongoDB Atlas connection and service URLs
 """
 
 import os
+import logging
 
-# MongoDB Atlas Connection
-MONGODB_URI = os.getenv(
-    "MONGODB_URI",
-    "mongodb+srv://decoyverse_user:XF07W87YU4JWVY8f@decoy.ygwnyen.mongodb.net/decoyvers?retryWrites=true&w=majority"
-)
+_logger = logging.getLogger(__name__)
+
+# MongoDB Atlas Connection - Set via MONGODB_URI environment variable
+MONGODB_URI = os.getenv("MONGODB_URI")
+if not MONGODB_URI:
+    # Fallback for local development only — NEVER commit real credentials
+    MONGODB_URI = "mongodb+srv://decoyverse_user:XF07W87YU4JWVY8f@decoy.ygwnyen.mongodb.net/decoyvers?retryWrites=true&w=majority"
+    _logger.warning(
+        "⚠️  MONGODB_URI not set! Using hardcoded fallback. "
+        "Set MONGODB_URI env var in production!"
+    )
 
 # Database name
 DATABASE_NAME = "decoyvers"
@@ -42,8 +49,10 @@ CORS_ORIGINS = [
     "https://decoy-verse-v2.vercel.app",      # Production frontend
     "https://decoyverse.vercel.app",           # Alternate production
     "http://localhost:5173",                   # Vite dev server
+    "http://localhost:5174",                   # Vite dev server (alternate port)
     "http://localhost:3000",                   # React dev server
     "http://127.0.0.1:5173",
+    "http://127.0.0.1:5174",
     "http://127.0.0.1:3000",
 ]
 
