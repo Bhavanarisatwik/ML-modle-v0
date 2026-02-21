@@ -345,6 +345,22 @@ Write-Status "      Bootstrapping Zeek inside WSL..." "Gray"
 $mntPath = "/mnt/c/DecoyVerse/logs"
 if (-not (Test-Path "C:\\DecoyVerse\\logs")) {{ New-Item -ItemType Directory -Path "C:\\DecoyVerse\\logs" | Out-Null }}
 
+# Step 6: Configuring Zeek Network Sensor via WSL
+Write-Status "[6/8] Configuring Zeek Network Sensor via WSL..." "Cyan"
+
+$wslStatus = wsl --status 2>&1
+if ($wslStatus -notmatch "Default Version: 2" -and $wslStatus -notmatch "WSL 2") {{
+    Write-Status "      Installing WSL and Ubuntu... (May take a few minutes)" "Yellow"
+    wsl.exe --install -d Ubuntu --web-download | Out-Null
+    Write-Status "      WSL installed. Note: May require system reboot." "Green"
+}} else {{
+    Write-Status "      WSL is already installed on this host." "Green"
+}}
+
+Write-Status "      Bootstrapping Zeek inside WSL..." "Gray"
+$mntPath = "/mnt/c/DecoyVerse/logs"
+if (-not (Test-Path "C:\\DecoyVerse\\logs")) {{ New-Item -ItemType Directory -Path "C:\\DecoyVerse\\logs" | Out-Null }}
+
 # Create the bash script
 $bashScriptPath = "$installDir\\install_zeek.sh"
 $bashScriptContent = @"
@@ -356,12 +372,12 @@ echo 'deb http://download.opensuse.org/repositories/security:/zeek/xUbuntu_22.04
 curl -fsSL https://download.opensuse.org/repositories/security:zeek/xUbuntu_22.04/Release.key | gpg --dearmor | sudo tee /etc/apt/trusted.gpg.d/security_zeek.gpg > /dev/null
 sudo apt-get update -qq
 sudo apt-get install -y -qq zeek
-mkdir -p {mnt_path}
+mkdir -p /mnt/c/DecoyVerse/logs
 cat << 'EOF' > /usr/local/bin/start_zeek_bridge.sh
 #!/bin/bash
-INTERFACE=`ip route get 8.8.8.8 | grep -Po '(?<=dev )(\\S+)'`
+INTERFACE=\\`ip route get 8.8.8.8 | grep -Po '(?<=dev )(\\S+)'\\`
 cd /mnt/c/DecoyVerse/logs
-/opt/zeek/bin/zeek -i `$INTERFACE -C local
+/opt/zeek/bin/zeek -i \\`$INTERFACE -C local
 EOF
 chmod +x /usr/local/bin/start_zeek_bridge.sh
 "@
