@@ -18,6 +18,7 @@ from alert_sender import AlertSender
 from agent_config import AgentConfig, AgentRegistration, ensure_agent_registered
 from zeek_parser import ZeekNetworkMonitor, simulate_zeek_ddos
 import threading
+import threading
 
 
 class DeceptionAgent:
@@ -37,8 +38,9 @@ class DeceptionAgent:
         self.last_heartbeat = 0.0
         self.log_path = Path(__file__).resolve().parent / "agent.log"
         
-        # Network Layer Additions
-        self.zeek_monitor = ZeekNetworkMonitor(log_path="conn.log", api_url=ml_service_url)
+        # Network Layer Additions (Zeek WSL Capture)
+        # In production this will be C:\\ProgramData\\DecoyVerse\\logs\\conn.log
+        self.network_monitor = ZeekNetworkMonitor(log_path="conn.log", api_url=ml_service_url)
 
     def log(self, message: str):
         """Append a log line to agent.log"""
@@ -106,7 +108,7 @@ class DeceptionAgent:
         print("="*70)
         
         l7_ok = self.monitor.initialize_monitoring()
-        l3_ok = self.zeek_monitor.initialize_monitoring()
+        l3_ok = self.network_monitor.initialize_monitoring()
         
         if l7_ok and l3_ok:
             print("\n✓ Monitoring initialized successfully (Application + Network)")
@@ -140,14 +142,14 @@ class DeceptionAgent:
                 self.sender.send_alert(alert)
 
         # 2. Check L3/L4 Network Logs (Zeek conn.log)
-        new_flows = self.zeek_monitor.process_new_lines()
-        l3_alerts = self.zeek_monitor.send_to_api_and_alert(new_flows)
-        
-        if l3_alerts and self.sender.check_api_health():
-            for alert in l3_alerts:
-                # Need to manually inject the monitor's alerts into the internal list for summary tracking
-                self.monitor.alerts.append(alert) 
-                self.sender.send_alert(alert)
+        new_flows = self.network_monitor.process_new_lines()
+        if new_flows:
+            l3_alerts = self.network_monitor.send_to_api_and_alert(new_flows)
+            
+            if l3_alerts and self.sender.check_api_health():
+                for alert in l3_alerts:
+                    self.monitor.alerts.append(alert) 
+                    self.sender.send_alert(alert)
 
     def heartbeat_cycle(self):
         """Send periodic heartbeat and handle uninstall requests"""

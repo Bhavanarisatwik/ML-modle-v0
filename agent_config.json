@@ -1,5 +1,5 @@
 {
   "node_id": "node-4a33c64ed163426a",
   "node_api_key": "nk_e_atNLJp6if6R--czz83Ym7q-OyZztJvZSKVkjjq8ic",
-  "backend_url": "https://ml-modle-v0-1.onrender.com"
+  "backend_url": "http://127.0.0.1:8000"
 }
