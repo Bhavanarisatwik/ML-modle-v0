@@ -159,16 +159,21 @@ async def root():
     }
 
 
+from fastapi.responses import JSONResponse
+
 # Error handlers
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request, exc):
     """Handle HTTP exceptions"""
     logger.error(f"HTTP {exc.status_code}: {exc.detail}")
-    return {
-        "status": "error",
-        "code": exc.status_code,
-        "detail": exc.detail
-    }
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "status": "error",
+            "code": exc.status_code,
+            "detail": exc.detail
+        }
+    )
 
 
 if __name__ == "__main__":

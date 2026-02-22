@@ -163,6 +163,11 @@ class AgentRegistration:
             response = requests.post(
                 url,
                 json=payload,
+                params={
+                    "node_id": node_id,
+                    "hostname": system_info.get("hostname", "unknown"),
+                    "os": system_info.get("os", "unknown")
+                },
                 headers=headers,
                 timeout=10
             )
