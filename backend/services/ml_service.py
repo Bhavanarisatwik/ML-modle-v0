@@ -44,28 +44,41 @@ class MLService:
                 )
             else:
                 logger.error(f"ML API returned status {response.status_code}: {response.text}")
-                return self._get_fallback_prediction()
+                return self._get_fallback_prediction(log_data)
                 
         except requests.exceptions.Timeout:
             logger.error(f"ML API timeout (>{15}s) - using fallback prediction")
-            return self._get_fallback_prediction()
+            return self._get_fallback_prediction(log_data)
         except requests.exceptions.ConnectionError:
             logger.error(f"ML API connection failed - using fallback prediction")
-            return self._get_fallback_prediction()
+            return self._get_fallback_prediction(log_data)
         except requests.exceptions.RequestException as e:
             logger.error(f"ML API request error: {e} - using fallback prediction")
-            return self._get_fallback_prediction()
+            return self._get_fallback_prediction(log_data)
         except Exception as e:
             logger.error(f"ML prediction error: {e} - using fallback prediction")
-            return self._get_fallback_prediction()
+            return self._get_fallback_prediction(log_data)
     
-    def _get_fallback_prediction(self) -> MLPrediction:
+    def _get_fallback_prediction(self, log_data: Dict[str, Any]) -> MLPrediction:
         """
         Return fallback prediction when ML service is unavailable
         
         Stores event with minimal risk scoring so it's not lost
+        If it's a definitive honeytoken access, give it a high risk score.
         """
         logger.warning("⚠️ Using fallback prediction (ML service unavailable)")
+        
+        # Check if it's a honeytoken access
+        alert_type = str(log_data.get("alert_type", "")).upper()
+        service = str(log_data.get("service", "")).lower()
+        if alert_type == "HONEYTOKEN_ACCESS" or "endpoint_agent" in service:
+            return MLPrediction(
+                attack_type="honeytoken_access",
+                risk_score=9,
+                confidence=0.9,
+                is_anomaly=True
+            )
+            
         return MLPrediction(
             attack_type="unknown",
             risk_score=0,

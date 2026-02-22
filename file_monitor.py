@@ -1,25 +1,96 @@
 """
 File Monitor Module
-Monitors honeytoken access using file stat polling
+Monitors honeytoken access using Windows ReadDirectoryChangesW via watchdog
 Supports monitoring individual files scattered across multiple directories
 """
 
 import os
 import json
+import logging
+import threading
+import time
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, Any, Callable, List
+from typing import Dict, Any, Callable, List, Set
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler, FileSystemEvent
+
+logger = logging.getLogger(__name__)
+
+
+class HoneytokenEventHandler(FileSystemEventHandler):
+    """Handles file system events for honeytoken files"""
+    
+    def __init__(self, watched_files: Set[str], alert_queue: list, lock: threading.Lock):
+        super().__init__()
+        self.watched_files = watched_files  # set of absolute lowercase paths
+        self.alert_queue = alert_queue
+        self.lock = lock
+        self._recent_events = {}  # Dedup: filepath -> last_event_time
+    
+    def _normalize(self, path: str) -> str:
+        return os.path.normcase(os.path.abspath(path))
+    
+    def _is_honeytoken(self, path: str) -> bool:
+        return self._normalize(path) in self.watched_files
+    
+    def _dedup(self, filepath: str, event_type: str) -> bool:
+        """Return True if this is a duplicate event (within 5s)"""
+        key = f"{filepath}|{event_type}"
+        now = time.time()
+        with self.lock:
+            last = self._recent_events.get(key, 0)
+            if now - last < 5:
+                return True
+            self._recent_events[key] = now
+        return False
+    
+    def on_modified(self, event: FileSystemEvent):
+        if event.is_directory:
+            return
+        if self._is_honeytoken(event.src_path) and not self._dedup(event.src_path, 'modified'):
+            self._queue_event(event.src_path, 'MODIFIED')
+    
+    def on_accessed(self, event: FileSystemEvent):
+        """Note: watchdog on Windows doesn't fire 'accessed' events directly.
+        We handle this in on_modified since opening a file often triggers FILE_NOTIFY_CHANGE_LAST_ACCESS."""
+        pass
+    
+    def on_any_event(self, event: FileSystemEvent):
+        """Catch-all: ReadDirectoryChangesW fires FILE_NOTIFY_CHANGE_LAST_ACCESS on file open"""
+        if event.is_directory:
+            return
+        if event.event_type in ('modified', 'created', 'moved'):
+            return  # Already handled
+        # This catches 'closed' and other events
+        if self._is_honeytoken(event.src_path) and not self._dedup(event.src_path, 'accessed'):
+            self._queue_event(event.src_path, 'ACCESSED')
+    
+    def _queue_event(self, filepath: str, action: str):
+        event_data = {
+            'event': action,
+            'filepath': filepath,
+            'timestamp': datetime.now().isoformat()
+        }
+        with self.lock:
+            self.alert_queue.append(event_data)
+        logger.info(f"🔔 Detected {action}: {os.path.basename(filepath)}")
 
 
 class FileMonitor:
-    """Monitor file access and modifications"""
+    """Monitor file access and modifications using watchdog + polling hybrid"""
     
     def __init__(self, watch_dir: str = "system_cache"):
         """Initialize file monitor"""
         self.watch_dir = watch_dir
-        self.monitored_files = {}
+        self.monitored_files = {}  # filepath -> stats dict
         self.alerts = []
         self.running = False
+        self._event_queue = []  # Shared queue from watchdog handlers
+        self._lock = threading.Lock()
+        self._observer = None
+        self._watched_dirs = set()  # Dirs we have observers on
+        self._watched_file_set = set()  # Normalized paths for fast lookup
     
     def get_system_info(self) -> Dict[str, Any]:
         """Get system information"""
@@ -46,108 +117,145 @@ class FileMonitor:
     def add_files(self, file_paths: List[str]):
         """
         Add specific file paths to monitor.
-        Use this to track honeytokens deployed to scattered locations.
+        Sets up watchdog observers on each parent directory.
         """
         for filepath in file_paths:
             filepath = str(filepath)
             if os.path.exists(filepath):
                 try:
-                    self.monitored_files[filepath] = {
-                        'size': os.path.getsize(filepath),
-                        'modified': os.path.getmtime(filepath),
-                        'accessed': os.path.getatime(filepath)
+                    abs_path = os.path.abspath(filepath)
+                    self.monitored_files[abs_path] = {
+                        'size': os.path.getsize(abs_path),
+                        'modified': os.path.getmtime(abs_path),
+                        'accessed': os.path.getatime(abs_path)
                     }
+                    self._watched_file_set.add(os.path.normcase(abs_path))
+                    logger.info(f"Tracking: {abs_path}")
                 except (OSError, PermissionError):
-                    pass
+                    logger.warning(f"Cannot access: {filepath}")
+            else:
+                logger.warning(f"File not found: {filepath}")
         
-        if self.monitored_files:
-            print(f"✓ Tracking {len(self.monitored_files)} honeytoken files")
+        logger.info(f"✓ Tracking {len(self.monitored_files)} honeytoken files")
+        
+        # Start watchdog observers for parent directories
+        self._setup_observers()
+    
+    def _setup_observers(self):
+        """Start watchdog observer for each unique parent directory"""
+        if self._observer is not None:
+            try:
+                self._observer.stop()
+            except Exception:
+                pass
+        
+        self._observer = Observer()
+        handler = HoneytokenEventHandler(self._watched_file_set, self._event_queue, self._lock)
+        
+        # Get unique parent directories
+        parent_dirs = set()
+        for filepath in self.monitored_files:
+            parent_dirs.add(os.path.dirname(filepath))
+        
+        for directory in parent_dirs:
+            if os.path.exists(directory):
+                try:
+                    self._observer.schedule(handler, directory, recursive=False)
+                    logger.info(f"👁️ Watching directory: {directory}")
+                except Exception as e:
+                    logger.warning(f"Cannot watch {directory}: {e}")
+        
+        self._observer.daemon = True
+        self._observer.start()
+        logger.info(f"✓ Watchdog observer started for {len(parent_dirs)} directories")
     
     def initialize_monitoring(self) -> bool:
         """Initialize monitoring setup"""
-        # If we already have individually added files, we're good
         if self.monitored_files:
-            print(f"✓ Monitoring {len(self.monitored_files)} individual honeytoken files")
+            logger.info(f"✓ Monitoring {len(self.monitored_files)} individual honeytoken files")
             return True
         
         # Fallback: scan watch_dir if no individual files were added
         if not os.path.exists(self.watch_dir):
-            print(f"⚠ Watch directory not found: {self.watch_dir}")
-            # Not a fatal error if we have no files - agent will still function
+            logger.warning(f"⚠ Watch directory not found: {self.watch_dir}")
             return True
         
-        print(f"✓ Monitoring directory: {self.watch_dir}")
+        logger.info(f"✓ Monitoring directory: {self.watch_dir}")
         
         # Scan initial files
         for root, dirs, files in os.walk(self.watch_dir):
             for file in files:
                 filepath = os.path.join(root, file)
                 try:
-                    self.monitored_files[filepath] = {
-                        'size': os.path.getsize(filepath),
-                        'modified': os.path.getmtime(filepath),
-                        'accessed': os.path.getatime(filepath)
+                    abs_path = os.path.abspath(filepath)
+                    self.monitored_files[abs_path] = {
+                        'size': os.path.getsize(abs_path),
+                        'modified': os.path.getmtime(abs_path),
+                        'accessed': os.path.getatime(abs_path)
                     }
+                    self._watched_file_set.add(os.path.normcase(abs_path))
                 except (OSError, PermissionError):
                     pass
         
-        print(f"✓ Tracking {len(self.monitored_files)} files")
+        logger.info(f"✓ Tracking {len(self.monitored_files)} files")
+        
+        if self.monitored_files:
+            self._setup_observers()
+        
         return True
     
     def detect_changes(self) -> list:
-        """Detect file changes using polling across all monitored files"""
+        """
+        Detect file changes using BOTH:
+        1. Watchdog event queue (real-time, reliable on Windows)
+        2. Stat polling fallback (catches any missed events)
+        """
         detected_changes = []
         
+        # Method 1: Drain watchdog event queue
+        with self._lock:
+            while self._event_queue:
+                event = self._event_queue.pop(0)
+                detected_changes.append(event)
+        
+        # Method 2: Stat polling fallback (check mtime changes)
         try:
-            # Check each monitored file (works for files in any directory)
             for filepath, old_stats in list(self.monitored_files.items()):
                 try:
                     if not os.path.exists(filepath):
-                        # File was deleted
-                        detected_changes.append({
-                            'event': 'deleted',
-                            'filepath': filepath,
-                            'timestamp': datetime.now().isoformat()
-                        })
-                        del self.monitored_files[filepath]
-                        continue
-                    
-                    current_stats = {
-                        'size': os.path.getsize(filepath),
-                        'modified': os.path.getmtime(filepath),
-                        'accessed': os.path.getatime(filepath)
-                    }
-                    
-                    # Check for modifications
-                    if current_stats['modified'] > old_stats['modified']:
-                        detected_changes.append({
-                            'event': 'modified',
-                            'filepath': filepath,
-                            'timestamp': datetime.now().isoformat()
-                        })
-                        self.monitored_files[filepath] = current_stats
-                    
-                    # Check for access (file opened)
-                    elif current_stats['accessed'] > old_stats['accessed']:
-                        # Avoid duplicate access events within 5 seconds
-                        last_alert = self.alerts[-1] if self.alerts else None
-                        if not last_alert or last_alert.get('filepath') != filepath or \
-                           (datetime.fromisoformat(datetime.now().isoformat()) - 
-                            datetime.fromisoformat(last_alert['timestamp'])).seconds > 5:
-                            
+                        # File was deleted — this is suspicious!
+                        already_queued = any(c['filepath'] == filepath for c in detected_changes)
+                        if not already_queued:
                             detected_changes.append({
-                                'event': 'accessed',
+                                'event': 'DELETED',
                                 'filepath': filepath,
                                 'timestamp': datetime.now().isoformat()
                             })
-                            self.monitored_files[filepath] = current_stats
+                        del self.monitored_files[filepath]
+                        continue
+                    
+                    current_mtime = os.path.getmtime(filepath)
+                    current_size = os.path.getsize(filepath)
+                    
+                    if current_mtime > old_stats['modified'] or current_size != old_stats['size']:
+                        already_queued = any(c['filepath'] == filepath for c in detected_changes)
+                        if not already_queued:
+                            detected_changes.append({
+                                'event': 'MODIFIED',
+                                'filepath': filepath,
+                                'timestamp': datetime.now().isoformat()
+                            })
+                        self.monitored_files[filepath] = {
+                            'size': current_size,
+                            'modified': current_mtime,
+                            'accessed': os.path.getatime(filepath)
+                        }
                     
                 except (OSError, PermissionError):
-                    # File may be locked or deleted
                     pass
         
         except Exception as e:
-            print(f"Error during change detection: {e}")
+            logger.error(f"Error during change detection: {e}")
         
         return detected_changes
     
@@ -190,9 +298,6 @@ class FileMonitor:
         """
         Perform one monitoring cycle
         
-        Args:
-            callback: Function to call for each alert (for integration with sender)
-        
         Returns:
             List of alerts generated
         """
@@ -203,7 +308,7 @@ class FileMonitor:
             alert = self.create_alert(change)
             alerts_generated.append(alert)
             
-            # Print alert
+            # Log alert
             self._print_alert(alert)
             
             # Call callback if provided
@@ -213,17 +318,8 @@ class FileMonitor:
         return alerts_generated
     
     def start_monitoring(self, interval: int = 5, callback: Callable = None):
-        """
-        Start continuous monitoring
-        
-        Args:
-            interval: Check interval in seconds
-            callback: Function to call for each alert
-        """
-        import time
-        
-        print(f"\n👀 Starting continuous monitoring (interval: {interval}s)")
-        print(f"   Watching {len(self.monitored_files)} files")
+        """Start continuous monitoring"""
+        logger.info(f"👀 Starting continuous monitoring (interval: {interval}s, files: {len(self.monitored_files)})")
         
         self.running = True
         try:
@@ -236,25 +332,23 @@ class FileMonitor:
     def stop_monitoring(self):
         """Stop monitoring"""
         self.running = False
+        if self._observer:
+            self._observer.stop()
+            self._observer.join(timeout=5)
     
     def get_alerts(self):
         """Get all recorded alerts"""
         return self.alerts
     
     def _print_alert(self, alert: Dict[str, Any]):
-        """Print alert in readable format"""
-        print(f"\n🚨 ALERT: {alert['severity']}")
-        print(f"   File: {alert['file_accessed']}")
-        print(f"   Path: {alert['file_path']}")
-        print(f"   Action: {alert['action']}")
-        print(f"   User: {alert['username']}@{alert['hostname']}")
-        print(f"   Time: {alert['timestamp']}")
+        """Log alert in readable format"""
+        logger.warning(f"🚨 ALERT: {alert['severity']} | File: {alert['file_accessed']} | Action: {alert['action']} | User: {alert['username']}@{alert['hostname']}")
     
     def export_alerts(self, filename: str = "alerts.json"):
         """Export alerts to JSON"""
         with open(filename, 'w') as f:
             json.dump(self.alerts, f, indent=2)
-        print(f"\n✓ Exported {len(self.alerts)} alerts to {filename}")
+        logger.info(f"✓ Exported {len(self.alerts)} alerts to {filename}")
 
 
 def main():

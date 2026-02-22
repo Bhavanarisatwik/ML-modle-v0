@@ -5,8 +5,11 @@ Sends detected alerts to backend API
 
 import requests
 import json
+import logging
 from typing import Dict, Any, Optional
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 
 class AlertSender:
@@ -38,13 +41,12 @@ class AlertSender:
     def check_api_health(self) -> bool:
         """Check if backend API is available"""
         try:
-            # Just check the root endpoint
             response = requests.get(f"{self.api_url}/", timeout=5)
             if response.status_code == 200:
-                print(f"✓ Backend API is healthy at {self.api_url}")
+                logger.info(f"✓ Backend API is healthy at {self.api_url}")
                 return True
         except requests.exceptions.RequestException as e:
-            print(f"✗ Backend API not responding at {self.api_url}: {e}")
+            logger.error(f"✗ Backend API not responding at {self.api_url}: {e}")
             return False
         return False
     
@@ -113,9 +115,7 @@ class AlertSender:
             file_accessed = alert.get('file_accessed', alert.get('filepath', 'unknown'))
             action = alert.get('action', 'ACCESSED')
             
-            print(f"\n📤 Sending alert to API...")
-            print(f"   File: {file_accessed}")
-            print(f"   Action: {action}")
+            logger.info(f"📤 Sending alert: {file_accessed} ({action}) -> {self.alert_endpoint}")
             
             # Build AgentEvent-compatible payload
             import platform
@@ -141,36 +141,29 @@ class AlertSender:
             
             if response.status_code == 200:
                 result = response.json()
-                
-                # Check if backend returned a prediction
                 ml = result.get('ml_prediction')
                 if ml:
-                    print(f"\n✓ Alert processed by ML model")
-                    print(f"   Attack Type: {ml.get('attack_type')}")
-                    print(f"   Risk Score: {ml.get('risk_score')}/10")
-                    print(f"   Confidence: {ml.get('confidence', 0):.2%}")
+                    logger.info(f"✓ Alert processed: {ml.get('attack_type')} risk={ml.get('risk_score')}/10 conf={ml.get('confidence', 0):.0%}")
                 else:
-                    print(f"\n✓ Alert saved successfully (no ML data returned)")
+                    logger.info(f"✓ Alert saved (no ML data returned)")
                 
                 self.alerts_sent += 1
                 return True
             else:
-                print(f"✗ API returned status {response.status_code}")
-                print(f"   Response: {response.text}")
+                logger.error(f"✗ API returned {response.status_code}: {response.text[:200]}")
                 self.alerts_failed += 1
                 return False
         
         except requests.exceptions.Timeout:
-            print(f"✗ API request timed out")
+            logger.error(f"✗ API request timed out -> {self.alert_endpoint}")
             self.alerts_failed += 1
             return False
         except requests.exceptions.ConnectionError:
-            print(f"✗ Cannot connect to API at {self.alert_endpoint}")
-            print(f"   Make sure backend is running: python ml_api.py")
+            logger.error(f"✗ Cannot connect to API at {self.alert_endpoint}")
             self.alerts_failed += 1
             return False
         except Exception as e:
-            print(f"✗ Error sending alert: {e}")
+            logger.error(f"✗ Error sending alert: {e}")
             self.alerts_failed += 1
             return False
     

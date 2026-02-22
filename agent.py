@@ -1,15 +1,12 @@
-"""
-Main Agent Module
-Orchestrates honeytoken deployment, monitoring, and alerting
-"""
-
 import os
 import sys
 import time
+import json
 import platform
 import subprocess
 import tempfile
 import shutil
+import logging
 from datetime import datetime
 from pathlib import Path
 from agent_setup import HoneytokenSetup
@@ -17,6 +14,17 @@ from file_monitor import FileMonitor
 from alert_sender import AlertSender
 from agent_config import AgentConfig, AgentRegistration, ensure_agent_registered
 import threading
+
+# Configure logging to write to agent.log
+log_path = Path(__file__).resolve().parent / "agent.log"
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s %(name)s: %(message)s',
+    handlers=[
+        logging.FileHandler(str(log_path), encoding='utf-8'),
+    ]
+)
+logger = logging.getLogger('DecoyVerseAgent')
 
 
 class DeceptionAgent:
@@ -43,14 +51,36 @@ class DeceptionAgent:
         self.log_path = Path(__file__).resolve().parent / "agent.log"
 
     def log(self, message: str):
-        """Append a log line to agent.log"""
-        try:
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            self.log_path.parent.mkdir(parents=True, exist_ok=True)
-            with self.log_path.open("a", encoding="utf-8") as f:
-                f.write(f"{timestamp} {message}\n")
-        except Exception:
-            pass
+        """Log to both agent.log file and Python logger"""
+        logger.info(message)
+    
+    def _load_manifest_paths(self) -> list:
+        """Load all honeytoken file paths from the deployment manifest"""
+        manifest_locations = [
+            Path.home() / "AppData" / "Local" / ".cache" / ".honeytoken_manifest.json",
+            Path.home() / ".cache" / ".honeytoken_manifest.json",
+            Path(__file__).resolve().parent / "deployment_manifest.json",
+        ]
+        
+        for manifest_path in manifest_locations:
+            if manifest_path.exists():
+                try:
+                    with open(manifest_path, 'r') as f:
+                        manifest = json.load(f)
+                    
+                    paths = []
+                    for item in manifest.get('decoys', []) + manifest.get('honeytokens', []):
+                        p = item.get('path', '')
+                        if p and os.path.exists(p):
+                            paths.append(p)
+                    
+                    self.log(f"Loaded {len(paths)} paths from manifest: {manifest_path}")
+                    return paths
+                except Exception as e:
+                    self.log(f"Error reading manifest {manifest_path}: {e}")
+        
+        self.log("No manifest file found")
+        return []
     
     def setup_honeytokens(self) -> bool:
         """Setup honeytokens based on deployment config"""
@@ -63,7 +93,7 @@ class DeceptionAgent:
         print(f"   Config: {deployment_config.get('initial_decoys', 3)} decoys, {deployment_config.get('initial_honeytokens', 5)} honeytokens")
         
         if self.setup.setup_all(deployment_config):
-            print("\n✓ Honeytokens deployed successfully")
+            self.log("Honeytokens deployed successfully")
             
             # Register deployed decoys with backend
             deployed_decoys = self.setup.get_deployed_decoys()
@@ -86,9 +116,16 @@ class DeceptionAgent:
             
             # Add deployed file paths to file monitor for access detection
             deployed_paths = [d.get('file_path', d.get('path', '')) for d in deployed_decoys if d.get('file_path') or d.get('path')]
-            if deployed_paths:
-                self.monitor.add_files(deployed_paths)
-                print(f"   ✓ Added {len(deployed_paths)} files to monitoring")
+            
+            # Also load ALL paths from manifest (includes files from previous installs)
+            manifest_paths = self._load_manifest_paths()
+            all_paths = list(set(deployed_paths + manifest_paths))  # Deduplicate
+            
+            if all_paths:
+                self.monitor.add_files(all_paths)
+                self.log(f"Added {len(all_paths)} files to monitoring ({len(deployed_paths)} new, {len(manifest_paths)} from manifest)")
+            else:
+                self.log("WARNING: No file paths found in deployed decoys or manifest")
             
             print(f"   Registering {len(deployed_decoys)} decoys with backend...")
             success = self.registration.register_deployed_decoys(
@@ -143,7 +180,9 @@ class DeceptionAgent:
         # Check honeytoken file access
         alerts = self.monitor.monitor_once()
         if alerts:
+            self.log(f"Detected {len(alerts)} alert(s)")
             for alert in alerts:
+                self.log(f"Sending alert: {alert.get('file_accessed', 'unknown')} - {alert.get('action', 'unknown')}")
                 self.sender.send_alert(alert)
 
     def heartbeat_cycle(self):
@@ -276,7 +315,7 @@ exit
         print(f"   Check interval: {interval} seconds")
         print(f"   Backend connection: {'✓ Active' if backend_available else '✗ Inactive'}")
         print(f"\n   Press Ctrl+C to stop\n")
-        self.log("Agent started - continuous monitoring active")
+        self.log(f"Agent started - monitoring {len(self.monitor.monitored_files)} files, interval={interval}s")
         
         self.running = True
         
