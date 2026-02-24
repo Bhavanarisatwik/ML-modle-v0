@@ -6,8 +6,13 @@ Dashboard endpoints with user scoping
 from fastapi import APIRouter, HTTPException, Header
 from typing import List, Optional
 import logging
+from pydantic import BaseModel
 
 from backend.models.log_models import StatsResponse, Alert
+
+
+class AlertStatusUpdate(BaseModel):
+    status: str
 from backend.services.db_service import db_service
 from backend.services.auth_service import auth_service
 from backend.config import AUTH_ENABLED, DEMO_USER_ID
@@ -102,24 +107,24 @@ async def get_all_alerts(
 @router.patch("/alerts/{alert_id}")
 async def update_alert_status(
     alert_id: str,
-    status: str,
+    update_data: AlertStatusUpdate,
     authorization: Optional[str] = Header(None)
 ):
     """
     Update alert status
-    
+
     Body: { "status": "resolved" | "investigating" | "open" }
     """
     try:
-        if status not in ["open", "investigating", "resolved"]:
+        if update_data.status not in ["open", "investigating", "resolved"]:
             raise HTTPException(status_code=400, detail="Invalid status")
-        
-        result = await db_service.update_alert_status(alert_id, status)
-        
+
+        result = await db_service.update_alert_status(alert_id, update_data.status)
+
         if not result:
             raise HTTPException(status_code=404, detail="Alert not found")
-        
-        return {"success": True, "alert_id": alert_id, "new_status": status}
+
+        return {"success": True, "alert_id": alert_id, "new_status": update_data.status}
     except HTTPException:
         raise
     except Exception as e:
