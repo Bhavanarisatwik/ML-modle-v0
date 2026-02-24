@@ -89,11 +89,18 @@ class DatabaseService:
             return None
     
     async def get_user_by_id(self, user_id: str) -> Optional[Dict[str, Any]]:
-        """Get user by ID"""
+        """Get user by ID — Express stores users with _id as ObjectId"""
         try:
             if self.db is None:
                 return None
-            user = await self.db[USERS_COLLECTION].find_one({"id": user_id})
+            from bson import ObjectId
+            try:
+                user = await self.db[USERS_COLLECTION].find_one({"_id": ObjectId(user_id)})
+            except Exception:
+                # Fallback: plain string id field (non-ObjectId stored IDs)
+                user = await self.db[USERS_COLLECTION].find_one({"id": user_id})
+            if user:
+                user["_id"] = str(user["_id"])
             return user
         except Exception as e:
             logger.error(f"Error getting user by ID: {e}")
@@ -372,15 +379,71 @@ class DatabaseService:
     # ==================== ALERT OPERATIONS ====================
     
     async def create_alert(self, alert: Alert) -> Optional[str]:
-        """Create high-risk alert"""
+        """Create high-risk alert and back-fill alert_id on the model"""
         try:
             alert_dict = alert.dict()
             result = await self.db[ALERTS_COLLECTION].insert_one(alert_dict)
+            alert_id = str(result.inserted_id)
+
+            # Store alert_id in the document so future lookups work
+            await self.db[ALERTS_COLLECTION].update_one(
+                {"_id": result.inserted_id},
+                {"$set": {"alert_id": alert_id}}
+            )
+
+            # Mutate the Pydantic model so the caller (e.g. notification_service) sees the ID
+            try:
+                alert.alert_id = alert_id
+            except Exception:
+                pass
+
             logger.warning(f"🚨 ALERT CREATED: {alert.attack_type} from {alert.source_ip}")
-            return str(result.inserted_id)
+            return alert_id
         except Exception as e:
             logger.error(f"Error creating alert: {e}")
             return None
+
+    async def update_alert_status(self, alert_id: str, status: str) -> bool:
+        """Update the status field of an alert (open / investigating / resolved)"""
+        try:
+            if self.db is None:
+                return False
+            from bson import ObjectId
+            try:
+                result = await self.db[ALERTS_COLLECTION].update_one(
+                    {"_id": ObjectId(alert_id)},
+                    {"$set": {"status": status}}
+                )
+            except Exception:
+                result = await self.db[ALERTS_COLLECTION].update_one(
+                    {"alert_id": alert_id},
+                    {"$set": {"status": status}}
+                )
+            return result.modified_count > 0
+        except Exception as e:
+            logger.error(f"Error updating alert status: {e}")
+            return False
+
+    async def update_alert_notification(self, alert_id: str, notified: bool, notification_status: str) -> bool:
+        """Update notification tracking fields on an alert"""
+        try:
+            if self.db is None:
+                return False
+            from bson import ObjectId
+            try:
+                result = await self.db[ALERTS_COLLECTION].update_one(
+                    {"_id": ObjectId(alert_id)},
+                    {"$set": {"notified": notified, "notification_status": notification_status}}
+                )
+            except Exception:
+                result = await self.db[ALERTS_COLLECTION].update_one(
+                    {"alert_id": alert_id},
+                    {"$set": {"notified": notified, "notification_status": notification_status}}
+                )
+            return result.modified_count > 0
+        except Exception as e:
+            logger.error(f"Error updating alert notification: {e}")
+            return False
     
     async def get_recent_alerts(self, limit: int = 10, user_id: Optional[str] = None) -> List[Dict]:
         """Get recent alerts"""

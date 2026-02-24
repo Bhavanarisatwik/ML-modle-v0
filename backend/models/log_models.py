@@ -146,6 +146,10 @@ class MLPrediction(BaseModel):
 
 class Alert(BaseModel):
     """High-risk alert"""
+
+    class Config:
+        allow_mutation = True
+
     alert_id: Optional[str] = None
     timestamp: str
     source_ip: str
@@ -158,6 +162,9 @@ class Alert(BaseModel):
     extra: Optional[Dict[str, Any]] = None
     node_id: Optional[str] = None
     user_id: Optional[str] = None
+    status: Optional[str] = "open"
+    notified: bool = False
+    notification_status: Optional[str] = None
 
 
 class AttackerProfile(BaseModel):

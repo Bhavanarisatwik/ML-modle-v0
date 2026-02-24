@@ -54,21 +54,25 @@ class NotificationService:
         except Exception as e:
             return f"🚨 DecoyVerse Alert: Threat detected, but failed to format message: {e}"
 
-    async def send_slack_alert(self, message: str, webhook_url: Optional[str] = None):
+    async def send_slack_alert(self, message: str, webhook_url: Optional[str] = None) -> Optional[bool]:
+        """Returns True on success, False on failure, None if skipped (not configured)."""
         target_url = webhook_url or SLACK_WEBHOOK_URL
         if not target_url:
             logger.info("Skipping Slack alert: Webhook URL is not set.")
-            return
-            
+            return None
+
         try:
             payload = {"text": message}
             response = await self.client.post(target_url, json=payload)
             response.raise_for_status()
             logger.info("✅ Slack alert sent successfully")
+            return True
         except Exception as e:
             logger.error(f"❌ Failed to send Slack alert: {e}")
+            return False
 
-    async def send_email_alert(self, alert_dict: dict, message: str, alert_to: Optional[str]):
+    async def send_email_alert(self, alert_dict: dict, message: str, alert_to: Optional[str]) -> Optional[bool]:
+        """Returns True on success, False on failure, None if skipped (not configured)."""
         target_to = alert_to or ALERT_EMAIL_TO
         target_server = SMTP_SERVER
         target_port = SMTP_PORT
@@ -77,7 +81,7 @@ class NotificationService:
 
         if not all([target_server, target_user, target_pass, target_to]):
             logger.info("Skipping Email alert: SMTP config or Recipient is not fully set.")
-            return
+            return None
 
         try:
             def _send_email():
@@ -87,7 +91,7 @@ class NotificationService:
                 attack = alert_dict.get('attack_type', 'Threat')
                 msg['Subject'] = f"[DecoyVerse Alert] Critical {attack} Detected"
 
-                body = message.replace('*', '') # Remove markdown bold for plain text email
+                body = message.replace('*', '')  # Remove markdown bold for plain text email
                 msg.attach(MIMEText(body, 'plain'))
 
                 server = smtplib.SMTP(target_server, target_port)
@@ -96,74 +100,111 @@ class NotificationService:
                 text = msg.as_string()
                 server.sendmail(target_user, target_to, text)
                 server.quit()
-                
+
             # Run blocking SMTP calls in thread
             await asyncio.to_thread(_send_email)
             logger.info("✅ Email alert sent successfully")
+            return True
         except Exception as e:
             logger.error(f"❌ Failed to send Email alert: {e}")
+            return False
 
-    async def send_whatsapp_alert(self, message: str, target_number: Optional[str] = None):
+    async def send_whatsapp_alert(self, message: str, target_number: Optional[str] = None) -> Optional[bool]:
+        """Returns True on success, False on failure, None if skipped (not configured)."""
         final_target = target_number or ALERT_WHATSAPP_TO
         if not all([TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_NUMBER, final_target]):
             logger.info("Skipping WhatsApp alert: Twilio config or Target Number is not fully set.")
-            return
+            return None
 
         try:
             # Twilio REST API URL
             url = f"https://api.twilio.com/2010-04-01/Accounts/{TWILIO_ACCOUNT_SID}/Messages.json"
-            
+
             # Twilio expects url-encoded form data
             data = {
                 "From": f"whatsapp:{TWILIO_WHATSAPP_NUMBER}",
                 "To": f"whatsapp:{final_target}",
                 "Body": message
             }
-            
+
             response = await self.client.post(
-                url, 
+                url,
                 data=data,
                 auth=(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
             )
             response.raise_for_status()
             logger.info("✅ WhatsApp alert sent successfully")
+            return True
         except Exception as e:
             logger.error(f"❌ Failed to send WhatsApp alert: {e}")
+            return False
 
     async def broadcast_alert(self, alert: Any):
         """
-        Takes an alert object, formats it, looks up user preferences if available, 
-        and broadcasts to all configured channels.
+        Formats and broadcasts an alert to all configured channels.
+
+        Deduplication: if alert.notified is already True, skips silently.
+        After sending, updates notified + notification_status in the DB.
         """
         try:
+            alert_dict = alert.dict() if hasattr(alert, 'dict') else dict(alert)
+
+            # --- Deduplication check ---
+            if alert_dict.get('notified', False):
+                logger.info("⏭️  Alert already notified — skipping broadcast")
+                return
+
+            alert_id = alert_dict.get('alert_id')
             message = self.format_alert_message(alert)
-            alert_dict = alert.dict() if hasattr(alert, 'dict') else alert
             user_id = alert_dict.get('user_id')
 
-            # Default credentials
+            # Default per-user channel credentials (fall back to env vars inside each send_* method)
             slack_url = None
             email_to = None
             whatsapp_num = None
 
-            # Look up dynamic credentials if user exists
+            # Look up user's saved notification preferences
             if user_id:
-                # We need to import db_service here to avoid circular dependencies locally
                 from backend.services.db_service import db_service
                 user_record = await db_service.get_user_by_id(user_id)
-                if user_record and "notifications" in user_record:
-                    notifs = user_record["notifications"]
-                    if notifs:
-                        slack_url = notifs.get("slackWebhook")
-                        email_to = notifs.get("emailAlertTo")
-                        whatsapp_num = notifs.get("whatsappNumber")
-            
-            # Fire all configurations concurrently
-            await asyncio.gather(
+                if user_record:
+                    notifs = user_record.get("notifications") or {}
+                    slack_url = notifs.get("slackWebhook") or None
+                    email_to = notifs.get("emailAlertTo") or None
+                    whatsapp_num = notifs.get("whatsappNumber") or None
+
+            # Fire all channels concurrently; capture individual results
+            results = await asyncio.gather(
                 self.send_slack_alert(message, slack_url),
                 self.send_email_alert(alert_dict, message, email_to),
                 self.send_whatsapp_alert(message, whatsapp_num),
-                return_exceptions=True # Don't let one failure stop others
+                return_exceptions=True
             )
+
+            # Determine outcome
+            # None  → channel skipped (not configured)
+            # True  → sent successfully
+            # False / Exception → failed
+            active = [r for r in results if r is not None]
+            if not active:
+                notified = False
+                notification_status = "no_channels"
+            elif any(r is True for r in active):
+                notified = True
+                notification_status = "sent"
+            else:
+                notified = False
+                notification_status = "failed"
+
+            logger.info(f"📣 Broadcast complete — notified={notified}, status={notification_status}")
+
+            # Persist tracking fields to DB
+            if alert_id:
+                from backend.services.db_service import db_service
+                await db_service.update_alert_notification(alert_id, notified, notification_status)
+            else:
+                logger.warning("broadcast_alert: alert_id is None — cannot persist notification status")
+
         except Exception as e:
             logger.error(f"❌ Critical error in alert broadcasting: {e}")
 
