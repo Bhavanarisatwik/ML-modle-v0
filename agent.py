@@ -13,6 +13,7 @@ from agent_setup import HoneytokenSetup
 from file_monitor import FileMonitor
 from alert_sender import AlertSender
 from agent_config import AgentConfig, AgentRegistration, ensure_agent_registered
+from network_monitor import NetworkMonitor
 import threading
 
 # Configure logging to write to agent.log
@@ -46,9 +47,15 @@ class DeceptionAgent:
             node_api_key=node_api_key
         )
         self.registration = AgentRegistration(self.config)
+        self.network_monitor = NetworkMonitor(
+            backend_url=backend_url,
+            node_id=node_id,
+            node_api_key=node_api_key,
+        )
         self.running = False
         self.last_heartbeat = 0.0
         self.log_path = Path(__file__).resolve().parent / "agent.log"
+        self._last_deployment_config: dict = {}
 
     def log(self, message: str):
         """Log to both agent.log file and Python logger"""
@@ -185,6 +192,56 @@ class DeceptionAgent:
                 self.log(f"Sending alert: {alert.get('file_accessed', 'unknown')} - {alert.get('action', 'unknown')}")
                 self.sender.send_alert(alert)
 
+    def _on_deployment_config_updated(self, deployment_config: dict):
+        """Deploy additional honeytokens when the dashboard increases the requested count."""
+        before_paths = {d.get('path', '') for d in (self.setup.decoys + self.setup.honeytokens)}
+
+        deployed = self.setup.setup_all(deployment_config)
+
+        if not deployed:
+            return
+
+        after_paths = {d.get('path', '') for d in (self.setup.decoys + self.setup.honeytokens)}
+        new_paths = [p for p in (after_paths - before_paths) if p and os.path.exists(p)]
+
+        if not new_paths:
+            return
+
+        # Wire new files into the file monitor
+        self.monitor.add_files(new_paths)
+        self.log(f"Added {len(new_paths)} new decoy file(s) to monitoring")
+
+        # Register new decoys with the backend so the dashboard sees them
+        node_id = self.config.get_node_id()
+        node_api_key = self.config.get_node_api_key()
+        if node_id and node_api_key:
+            new_decoys = [
+                {
+                    "file_path": p,
+                    "file_name": os.path.basename(p),
+                    "type": "honeytoken",
+                    "status": "active",
+                    "auto_deployed": True,
+                }
+                for p in new_paths
+            ]
+            self.registration.register_deployed_decoys(node_id, node_api_key, new_decoys)
+
+    def _write_pending_blocks(self, ips: list):
+        """Merge new IPs into pending_blocks.json so dv_firewall.py can pick them up."""
+        blocks_path = Path(__file__).resolve().parent / "pending_blocks.json"
+        existing: list = []
+        if blocks_path.exists():
+            try:
+                with open(blocks_path, 'r') as f:
+                    existing = json.load(f)
+            except Exception:
+                existing = []
+        merged = list({ip for ip in existing + ips})
+        with open(blocks_path, 'w') as f:
+            json.dump(merged, f)
+        self.log(f"Queued {len(ips)} IP(s) for firewall block: {ips}")
+
     def heartbeat_cycle(self):
         """Send periodic heartbeat and handle uninstall requests"""
         node_id = self.config.get_node_id()
@@ -197,6 +254,18 @@ class DeceptionAgent:
             self.log("Heartbeat sent - node is active")
         else:
             self.log("Heartbeat failed")
+
+        # Deploy additional decoys if the dashboard increased the requested count
+        new_config = result.get("deployment_config", {})
+        if new_config and new_config != self._last_deployment_config:
+            self._last_deployment_config = dict(new_config)
+            self._on_deployment_config_updated(new_config)
+
+        # Process any IP block commands queued by the dashboard
+        pending = result.get("pending_blocks", [])
+        if pending:
+            self._write_pending_blocks(pending)
+
         if result.get("uninstall"):
             print("\n⚠️  Uninstall requested by dashboard. Removing agent...")
             self.handle_uninstall(node_id, node_api_key)
@@ -314,9 +383,11 @@ exit
         print(f"   Monitoring: {self.watch_dir}")
         print(f"   Check interval: {interval} seconds")
         print(f"   Backend connection: {'✓ Active' if backend_available else '✗ Inactive'}")
+        print(f"   Network monitoring: ✓ Active")
         print(f"\n   Press Ctrl+C to stop\n")
         self.log(f"Agent started - monitoring {len(self.monitor.monitored_files)} files, interval={interval}s")
-        
+
+        self.network_monitor.start()
         self.running = True
         
         try:
@@ -333,6 +404,7 @@ exit
     def stop(self):
         """Stop the agent gracefully"""
         self.running = False
+        self.network_monitor.stop()
         print("\n\n" + "="*70)
         print("🛑 AGENT STOPPED")
         print("="*70)

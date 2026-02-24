@@ -8,7 +8,8 @@ from typing import List, Optional
 import logging
 from pydantic import BaseModel
 
-from backend.models.log_models import StatsResponse, Alert
+from datetime import datetime
+from backend.models.log_models import StatsResponse, Alert, BlockedIP
 from backend.services.db_service import db_service
 from backend.services.auth_service import auth_service
 from backend.config import AUTH_ENABLED, DEMO_USER_ID
@@ -154,6 +155,66 @@ async def get_attacker_profile(
         raise
     except Exception as e:
         logger.error(f"Error getting attacker profile: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class BlockIPRequest(BaseModel):
+    ip_address: str
+    node_id: str
+    alert_id: Optional[str] = None
+
+
+@router.post("/block-ip")
+async def block_ip(
+    request: BlockIPRequest,
+    authorization: Optional[str] = Header(None)
+):
+    """
+    Queue an IP address for firewall blocking on the specified node.
+
+    The agent picks up pending blocks on its next heartbeat and applies
+    the Windows Firewall rule via the dv_firewall helper (privilege-separated).
+    """
+    try:
+        user_id = get_user_id_from_header(authorization)
+
+        block = BlockedIP(
+            node_id=request.node_id,
+            ip_address=request.ip_address,
+            requested_at=datetime.utcnow().isoformat(),
+            requested_by_user_id=user_id,
+            alert_id=request.alert_id,
+            status="pending"
+        )
+        block_id = await db_service.add_blocked_ip(block)
+
+        if not block_id:
+            raise HTTPException(status_code=500, detail="Failed to queue IP block")
+
+        return {
+            "success": True,
+            "message": f"IP {request.ip_address} queued for blocking on node {request.node_id}",
+            "block_id": block_id,
+            "status": "pending"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error queuing IP block: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/blocked-ips")
+async def get_blocked_ips(authorization: Optional[str] = Header(None)):
+    """
+    Return all blocked IPs for the authenticated user's nodes.
+    """
+    try:
+        user_id = get_user_id_from_header(authorization)
+        blocked = await db_service.get_blocked_ips(user_id)
+        return {"success": True, "data": blocked}
+    except Exception as e:
+        logger.error(f"Error getting blocked IPs: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

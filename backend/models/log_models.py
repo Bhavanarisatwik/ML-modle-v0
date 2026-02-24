@@ -167,6 +167,35 @@ class Alert(BaseModel):
     notification_status: Optional[str] = None
 
 
+class NetworkEvent(BaseModel):
+    """Network connection event from agent network monitor"""
+    node_id: Optional[str] = None
+    user_id: Optional[str] = None
+    timestamp: str
+    source_ip: str
+    dest_ip: str
+    dest_port: int
+    protocol: str = "TCP"
+    status: str = "ESTABLISHED"
+    process_name: Optional[str] = None
+    rule_score: int = 0
+    rule_triggers: List[str] = Field(default_factory=list)
+    ml_attack_type: Optional[str] = None
+    ml_risk_score: Optional[int] = None
+    ml_confidence: Optional[float] = None
+
+
+class BlockedIP(BaseModel):
+    """IP block request and its status"""
+    node_id: str
+    ip_address: str
+    requested_at: str
+    requested_by_user_id: Optional[str] = None
+    alert_id: Optional[str] = None
+    status: str = "pending"  # pending | active | failed
+    confirmed_at: Optional[str] = None
+
+
 class AttackerProfile(BaseModel):
     """Attacker profiling data"""
     source_ip: str

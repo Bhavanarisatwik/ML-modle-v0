@@ -29,6 +29,8 @@ ATTACKER_PROFILES_COLLECTION = "attacker_profiles"
 USERS_COLLECTION = "users"
 NODES_COLLECTION = "nodes"
 DECOYS_COLLECTION = "decoys"
+NETWORK_EVENTS_COLLECTION = "network_events"
+BLOCKED_IPS_COLLECTION = "blocked_ips"
 
 # ML Service URL
 ML_API_URL = os.getenv("ML_API_URL", "https://ml-modle-v0-2.onrender.com")

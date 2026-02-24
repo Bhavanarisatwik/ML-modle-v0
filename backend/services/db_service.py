@@ -18,11 +18,13 @@ from backend.config import (
     USERS_COLLECTION,
     NODES_COLLECTION,
     DECOYS_COLLECTION,
+    NETWORK_EVENTS_COLLECTION,
+    BLOCKED_IPS_COLLECTION,
     ALERT_RISK_THRESHOLD,
     AUTH_ENABLED,
     DEMO_USER_ID
 )
-from backend.models.log_models import Alert, AttackerProfile
+from backend.models.log_models import Alert, AttackerProfile, NetworkEvent, BlockedIP
 
 logger = logging.getLogger(__name__)
 
@@ -792,6 +794,99 @@ class DatabaseService:
                 "active_nodes": 0,
                 "recent_risk_average": 0.0
             }
+
+
+    # ==================== NETWORK EVENT OPERATIONS ====================
+
+    async def save_network_event(self, event: NetworkEvent) -> Optional[str]:
+        """Store a network connection event from the agent network monitor"""
+        try:
+            if self.db is None:
+                return None
+            doc = event.dict()
+            result = await self.db[NETWORK_EVENTS_COLLECTION].insert_one(doc)
+            return str(result.inserted_id)
+        except Exception as e:
+            logger.error(f"Error saving network event: {e}")
+            return None
+
+    async def get_recent_network_events(self, limit: int = 50, user_id: Optional[str] = None) -> List[Dict]:
+        """Fetch recent network events, optionally scoped to a user"""
+        try:
+            if self.db is None:
+                return []
+            query: Dict[str, Any] = {}
+            if AUTH_ENABLED and user_id:
+                query = {"user_id": user_id}
+            cursor = self.db[NETWORK_EVENTS_COLLECTION].find(query).sort("timestamp", -1).limit(limit)
+            events = await cursor.to_list(length=limit)
+            for e in events:
+                e["_id"] = str(e["_id"])
+            return events
+        except Exception as e:
+            logger.error(f"Error getting network events: {e}")
+            return []
+
+    # ==================== BLOCKED IP OPERATIONS ====================
+
+    async def add_blocked_ip(self, block: BlockedIP) -> Optional[str]:
+        """Queue an IP block request (status='pending')"""
+        try:
+            if self.db is None:
+                return None
+            doc = block.dict()
+            result = await self.db[BLOCKED_IPS_COLLECTION].insert_one(doc)
+            return str(result.inserted_id)
+        except Exception as e:
+            logger.error(f"Error adding blocked IP: {e}")
+            return None
+
+    async def get_pending_blocks(self, node_id: str) -> List[str]:
+        """Return list of IP addresses pending a firewall block on this node"""
+        try:
+            if self.db is None:
+                return []
+            cursor = self.db[BLOCKED_IPS_COLLECTION].find(
+                {"node_id": node_id, "status": "pending"}
+            )
+            docs = await cursor.to_list(length=100)
+            return [d["ip_address"] for d in docs]
+        except Exception as e:
+            logger.error(f"Error getting pending blocks: {e}")
+            return []
+
+    async def confirm_block(self, node_id: str, ip_address: str) -> bool:
+        """Mark an IP block as active once the agent confirms the firewall rule was added"""
+        try:
+            if self.db is None:
+                return False
+            result = await self.db[BLOCKED_IPS_COLLECTION].update_many(
+                {"node_id": node_id, "ip_address": ip_address, "status": "pending"},
+                {"$set": {"status": "active", "confirmed_at": datetime.utcnow().isoformat()}}
+            )
+            return result.modified_count > 0
+        except Exception as e:
+            logger.error(f"Error confirming block: {e}")
+            return False
+
+    async def get_blocked_ips(self, user_id: Optional[str] = None) -> List[Dict]:
+        """Return all blocked IPs, optionally scoped to a user's nodes"""
+        try:
+            if self.db is None:
+                return []
+            query: Dict[str, Any] = {}
+            if AUTH_ENABLED and user_id:
+                # Get user's node IDs first
+                node_ids = [n["node_id"] for n in await self.get_nodes_by_user(user_id)]
+                query = {"node_id": {"$in": node_ids}}
+            cursor = self.db[BLOCKED_IPS_COLLECTION].find(query).sort("requested_at", -1)
+            docs = await cursor.to_list(length=500)
+            for d in docs:
+                d["_id"] = str(d["_id"])
+            return docs
+        except Exception as e:
+            logger.error(f"Error getting blocked IPs: {e}")
+            return []
 
 
 # Singleton instance

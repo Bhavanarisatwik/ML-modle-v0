@@ -14,7 +14,7 @@ import io
 from pathlib import Path
 import asyncio
 
-from backend.models.log_models import AgentEvent, Alert
+from backend.models.log_models import AgentEvent, Alert, NetworkEvent, BlockedIP
 from backend.services.db_service import db_service
 from backend.services.ml_service import ml_service
 from backend.services.node_service import node_service
@@ -263,12 +263,20 @@ async def agent_heartbeat(
         await db_service.update_node(node_id, update_data)
         
         logger.info(f"💓 Heartbeat from node: {node_id} (IP: {client_ip})")
-        
+
+        # Return any pending IP blocks so the agent can apply firewall rules
+        pending_blocks = await db_service.get_pending_blocks(node_id)
+
+        # Return current deployment config so the agent can deploy newly-requested decoys
+        deployment_config = node.get("deployment_config", {}) if node else {}
+
         return {
             "status": "success",
             "message": "Heartbeat received",
             "node_id": node_id,
-            "uninstall": uninstall_requested
+            "uninstall": uninstall_requested,
+            "pending_blocks": pending_blocks,
+            "deployment_config": deployment_config,
         }
     
     except HTTPException:
@@ -595,4 +603,110 @@ async def register_deployed_decoys(
         raise
     except Exception as e:
         logger.error(f"Error registering decoys: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/network-event")
+async def receive_network_event(
+    event: NetworkEvent,
+    x_node_id: Optional[str] = Header(None),
+    x_node_key: Optional[str] = Header(None),
+    x_node_api_key: Optional[str] = Header(None, alias="X-Node-API-Key")
+):
+    """
+    Receive a network connection event from the agent network monitor.
+
+    The agent sends this for suspicious non-standard-port connections.
+    If rule_score or ml_risk_score >= ALERT_RISK_THRESHOLD, an alert is created
+    and notifications are fired immediately.
+    """
+    try:
+        # Resolve node + user
+        user_id = DEMO_USER_ID
+        node_id = x_node_id
+
+        if AUTH_ENABLED:
+            api_key = x_node_api_key or x_node_key
+            if api_key:
+                node = await db_service.get_node_by_api_key(api_key)
+                if not node:
+                    raise HTTPException(status_code=401, detail="Invalid API key")
+            else:
+                node = await validate_node_access(x_node_id, x_node_key)
+            user_id = node["user_id"]
+            node_id = node["node_id"]
+
+        event.node_id = node_id
+        event.user_id = user_id
+
+        # Persist raw event
+        await db_service.save_network_event(event)
+
+        # Determine effective risk score (ML takes priority over rules)
+        effective_score = event.ml_risk_score if event.ml_risk_score is not None else event.rule_score
+        alert_created = False
+
+        if effective_score >= ALERT_RISK_THRESHOLD:
+            attack_type = event.ml_attack_type or (event.rule_triggers[0] if event.rule_triggers else "network_anomaly")
+            alert = Alert(
+                timestamp=event.timestamp,
+                source_ip=event.source_ip,
+                service=f"network:{event.protocol}:{event.dest_port}",
+                attack_type=attack_type,
+                risk_score=effective_score,
+                confidence=event.ml_confidence if event.ml_confidence is not None else 0.85,
+                activity=f"Suspicious connection to {event.dest_ip}:{event.dest_port}",
+                payload=", ".join(event.rule_triggers),
+                node_id=node_id,
+                user_id=user_id
+            )
+            await db_service.create_alert(alert)
+            alert_created = True
+            asyncio.create_task(notification_service.broadcast_alert(alert))
+
+        return {
+            "status": "success",
+            "alert_created": alert_created,
+            "effective_score": effective_score
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error processing network event: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/agent/block-confirmed")
+async def agent_block_confirmed(
+    node_id: str,
+    ip_address: str,
+    x_node_api_key: Optional[str] = Header(None, alias="X-Node-API-Key"),
+    x_node_id: Optional[str] = Header(None),
+    x_node_key: Optional[str] = Header(None)
+):
+    """
+    Agent reports that it has successfully applied a firewall rule for an IP.
+
+    Updates the blocked_ips record status from 'pending' → 'active'.
+    """
+    try:
+        if AUTH_ENABLED:
+            api_key = x_node_api_key or x_node_key
+            if api_key:
+                node = await db_service.get_node_by_api_key(api_key)
+                if not node:
+                    raise HTTPException(status_code=401, detail="Invalid API key")
+                node_id = node["node_id"]
+            else:
+                node = await validate_node_access(x_node_id, x_node_key)
+                node_id = node["node_id"]
+
+        confirmed = await db_service.confirm_block(node_id, ip_address)
+        return {"status": "success", "confirmed": confirmed, "ip_address": ip_address}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error confirming block: {e}")
         raise HTTPException(status_code=500, detail=str(e))
