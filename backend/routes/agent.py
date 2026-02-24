@@ -11,8 +11,10 @@ import logging
 import json
 import zipfile
 import io
+import socket
 from pathlib import Path
 import asyncio
+import httpx
 
 from backend.models.log_models import AgentEvent, Alert, NetworkEvent, BlockedIP
 from backend.services.db_service import db_service
@@ -20,14 +22,86 @@ from backend.services.ml_service import ml_service
 from backend.services.node_service import node_service
 from backend.services.node_auth import validate_node_access
 from backend.services.notification_service import notification_service
-from backend.config import ALERT_RISK_THRESHOLD, AUTH_ENABLED, DEMO_USER_ID
+from backend.config import ALERT_RISK_THRESHOLD, AUTH_ENABLED, DEMO_USER_ID, ABUSEIPDB_API_KEY
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["agent"])
 
+_PRIVATE_PREFIXES = ('10.', '172.16.', '172.17.', '172.18.', '172.19.',
+                     '172.20.', '172.21.', '172.22.', '172.23.', '172.24.',
+                     '172.25.', '172.26.', '172.27.', '172.28.', '172.29.',
+                     '172.30.', '172.31.', '192.168.', '127.', '::1', 'localhost')
+
+
+async def _enrich_ip(ip: str) -> Dict[str, Any]:
+    """
+    Enrich an IP with geolocation, reverse DNS, and optional AbuseIPDB reputation.
+    All lookups are best-effort — failures return an empty dict, never raise.
+    Free-tier sources: ip-api.com (geo) + socket (rDNS) + AbuseIPDB (if key set).
+    """
+    if not ip or any(ip.startswith(p) for p in _PRIVATE_PREFIXES):
+        return {"type": "private/local"}
+
+    enriched: Dict[str, Any] = {}
+
+    # 1. Reverse DNS (stdlib — no external dependency)
+    try:
+        rdns = await asyncio.get_event_loop().run_in_executor(
+            None, lambda: socket.gethostbyaddr(ip)[0]
+        )
+        enriched["rdns"] = rdns
+    except Exception:
+        pass
+
+    # 2. Geolocation — ip-api.com (free, no key, 45 req/min)
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            resp = await client.get(
+                f"http://ip-api.com/json/{ip}",
+                params={"fields": "status,country,countryCode,regionName,city,isp,org,as,lat,lon"}
+            )
+            data = resp.json()
+            if data.get("status") == "success":
+                enriched["geo"] = {
+                    "country":      data.get("country"),
+                    "country_code": data.get("countryCode"),
+                    "region":       data.get("regionName"),
+                    "city":         data.get("city"),
+                    "isp":          data.get("isp"),
+                    "org":          data.get("org"),
+                    "asn":          data.get("as"),
+                    "lat":          data.get("lat"),
+                    "lon":          data.get("lon"),
+                }
+    except Exception:
+        pass
+
+    # 3. AbuseIPDB reputation (only if API key is configured)
+    if ABUSEIPDB_API_KEY:
+        try:
+            async with httpx.AsyncClient(timeout=3.0) as client:
+                resp = await client.get(
+                    "https://api.abuseipdb.com/api/v2/check",
+                    headers={"Key": ABUSEIPDB_API_KEY, "Accept": "application/json"},
+                    params={"ipAddress": ip, "maxAgeInDays": 90}
+                )
+                d = resp.json().get("data", {})
+                enriched["abuse"] = {
+                    "confidence_score": d.get("abuseConfidenceScore", 0),
+                    "total_reports":    d.get("totalReports", 0),
+                    "last_reported":    d.get("lastReportedAt"),
+                    "is_tor":           d.get("isTor", False),
+                    "country_code":     d.get("countryCode"),
+                }
+        except Exception:
+            pass
+
+    return enriched
+
 
 @router.post("/agent-alert")
 async def receive_agent_event(
+    request: Request,
     event: AgentEvent,
     x_node_id: Optional[str] = Header(None),
     x_node_key: Optional[str] = Header(None)
@@ -94,7 +168,23 @@ async def receive_agent_event(
             ml_prediction.dict() if ml_prediction else None
         )
         
-        # Step 5: Create alert if high risk
+        # Step 5: Build enrichment metadata
+        client_ip = request.client.host if request.client else None
+        forwarded = request.headers.get("X-Forwarded-For")
+        if forwarded:
+            client_ip = forwarded.split(",")[0].strip()
+
+        extra: Dict[str, Any] = {}
+        # Process context (from file_monitor psutil capture)
+        for field in ("process_name", "pid", "process_user", "cmdline"):
+            val = getattr(event, field, None)
+            if val is not None:
+                extra[field] = val
+        # Geolocation of the agent's endpoint (shows where the monitored machine is)
+        if client_ip:
+            extra["endpoint"] = await _enrich_ip(client_ip)
+
+        # Step 6: Create alert if high risk
         alert_created = False
         if ml_prediction and ml_prediction.risk_score >= ALERT_RISK_THRESHOLD:
             alert = Alert(
@@ -108,15 +198,16 @@ async def receive_agent_event(
                 activity=event.action,
                 payload=event.file_accessed,
                 node_id=node_id,
-                user_id=user_id
+                user_id=user_id,
+                extra=extra or None,
             )
             await db_service.create_alert(alert)
             alert_created = True
-            
+
             # Fire notifications asynchronously across all channels (Slack/Email/WhatsApp)
             asyncio.create_task(notification_service.broadcast_alert(alert))
         
-        # Step 6: Update attacker profile (use hostname as IP)
+        # Step 7: Update attacker profile (use hostname as IP)
         if ml_prediction:
             await db_service.update_attacker_profile(
                 source_ip=event.hostname,
@@ -648,6 +739,13 @@ async def receive_network_event(
 
         if effective_score >= ALERT_RISK_THRESHOLD:
             attack_type = event.ml_attack_type or (event.rule_triggers[0] if event.rule_triggers else "network_anomaly")
+
+            # Enrich the destination IP (potential C2 / exfiltration target)
+            dest_enrichment = await _enrich_ip(event.dest_ip)
+            extra: Dict[str, Any] = {"dest_ip_info": dest_enrichment}
+            if event.process_name:
+                extra["process_name"] = event.process_name
+
             alert = Alert(
                 timestamp=event.timestamp,
                 source_ip=event.source_ip,
@@ -658,7 +756,8 @@ async def receive_network_event(
                 activity=f"Suspicious connection to {event.dest_ip}:{event.dest_port}",
                 payload=", ".join(event.rule_triggers),
                 node_id=node_id,
-                user_id=user_id
+                user_id=user_id,
+                extra=extra,
             )
             await db_service.create_alert(alert)
             alert_created = True

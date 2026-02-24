@@ -134,6 +134,11 @@ class AgentEvent(BaseModel):
     action: str = Field(..., max_length=50, description="Action: ACCESSED, MODIFIED")
     severity: str = Field(..., max_length=20, description="Severity: CRITICAL, HIGH, MEDIUM, LOW")
     alert_type: str = Field(..., max_length=100, description="Alert type")
+    # Process metadata (captured by file_monitor via psutil — optional)
+    process_name: Optional[str] = Field(default=None, max_length=255, description="Process that accessed the file")
+    pid: Optional[int] = Field(default=None, description="Process ID")
+    process_user: Optional[str] = Field(default=None, max_length=100, description="OS user running the process")
+    cmdline: Optional[str] = Field(default=None, max_length=500, description="Process command line")
 
 
 class MLPrediction(BaseModel):

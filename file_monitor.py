@@ -259,11 +259,33 @@ class FileMonitor:
         
         return detected_changes
     
+    def _get_process_for_file(self, filepath: str) -> dict:
+        """Best-effort: find the process that has this file open right now."""
+        try:
+            import psutil
+            target = os.path.normcase(os.path.abspath(filepath))
+            for proc in psutil.process_iter(['pid', 'name', 'username', 'cmdline']):
+                try:
+                    for f in proc.open_files():
+                        if os.path.normcase(f.path) == target:
+                            cmdline = proc.info.get('cmdline') or []
+                            return {
+                                'pid': proc.pid,
+                                'process_name': proc.info.get('name', ''),
+                                'process_user': proc.info.get('username', ''),
+                                'cmdline': ' '.join(cmdline)[:300],
+                            }
+                except (psutil.AccessDenied, psutil.NoSuchProcess, OSError):
+                    pass
+        except Exception:
+            pass
+        return {}
+
     def create_alert(self, event: Dict[str, Any]) -> Dict[str, Any]:
         """Create alert from detected event"""
         system_info = self.get_system_info()
         filepath = event['filepath']
-        
+
         alert = {
             'timestamp': event['timestamp'],
             'hostname': system_info['hostname'],
@@ -273,9 +295,18 @@ class FileMonitor:
             'filepath': filepath,
             'action': event['event'].upper(),
             'severity': self._calculate_severity(filepath),
-            'alert_type': 'HONEYTOKEN_ACCESS'
+            'alert_type': 'HONEYTOKEN_ACCESS',
         }
-        
+
+        # Enrich with the process that accessed the file (best-effort, no admin needed)
+        proc_info = self._get_process_for_file(filepath)
+        if proc_info:
+            alert.update(proc_info)
+            logger.info(
+                f"🔎 Process identified: {proc_info.get('process_name')} "
+                f"(PID {proc_info.get('pid')}) user={proc_info.get('process_user')}"
+            )
+
         self.alerts.append(alert)
         return alert
     
