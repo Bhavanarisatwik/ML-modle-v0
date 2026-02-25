@@ -1,4 +1,5 @@
 import logging
+import os
 import asyncio
 import smtplib
 from email.mime.text import MIMEText
@@ -242,36 +243,40 @@ class NotificationService:
         target_user = SMTP_USER
         target_pass = SMTP_PASS
 
-        if not all([target_server, target_user, target_pass, target_to]):
-            logger.info("Skipping Email alert: SMTP config or Recipient is not fully set.")
+        if not target_to:
+            logger.info("Skipping Email alert: no recipient configured.")
             return None
 
+        # Relay through Express/NodeMailer so all email uses the same IPv4-safe sender
+        express_url = os.getenv('EXPRESS_API_URL', 'http://localhost:5000')
+        internal_secret = os.getenv('INTERNAL_SECRET', '')
+
+        alert_data = {
+            'alert_id':   str(alert_dict.get('_id', '')),
+            'attack_type': alert_dict.get('attack_type'),
+            'risk_score':  alert_dict.get('risk_score'),
+            'confidence':  alert_dict.get('confidence'),
+            'status':      alert_dict.get('status', 'open'),
+            'source_ip':   alert_dict.get('source_ip'),
+            'node_id':     str(alert_dict.get('node_id', '')),
+            'service':     alert_dict.get('service'),
+            'activity':    alert_dict.get('activity'),
+            'timestamp':   str(alert_dict.get('timestamp', '')),
+            'payload':     alert_dict.get('payload'),
+        }
+
         try:
-            html_body = self._build_alert_html(alert_dict)
-            plain_body = message.replace('*', '')
-
-            def _send_email():
-                msg = MIMEMultipart('alternative')
-                msg['From'] = target_user
-                msg['To'] = target_to
-                attack = alert_dict.get('attack_type', 'Threat')
-                msg['Subject'] = f"🚨 [DecoyVerse Alert] Critical {attack} Detected"
-
-                msg.attach(MIMEText(plain_body, 'plain'))
-                msg.attach(MIMEText(html_body, 'html'))   # HTML part last = preferred by clients
-
-                server = smtplib.SMTP(target_server, target_port)
-                server.starttls()
-                server.login(target_user, target_pass)
-                server.sendmail(target_user, target_to, msg.as_string())
-                server.quit()
-
-            # Run blocking SMTP calls in thread
-            await asyncio.to_thread(_send_email)
-            logger.info("✅ Email alert sent successfully")
+            async with httpx.AsyncClient(timeout=20) as client:
+                response = await client.post(
+                    f"{express_url}/api/auth/internal/send-alert-email",
+                    json={'to': target_to, 'alertData': alert_data},
+                    headers={'x-internal-secret': internal_secret},
+                )
+                response.raise_for_status()
+            logger.info("✅ Email alert relayed via Express/NodeMailer")
             return True
         except Exception as e:
-            logger.error(f"❌ Failed to send Email alert: {e}")
+            logger.error(f"❌ Failed to relay Email alert to Express: {e}")
             return False
 
     async def send_whatsapp_alert(self, message: str, target_number: Optional[str] = None) -> Optional[bool]:
