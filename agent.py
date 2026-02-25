@@ -272,7 +272,12 @@ class DeceptionAgent:
             self.running = False
 
     def handle_uninstall(self, node_id: str, node_api_key: str):
-        """Remove agent from the system and notify backend"""
+        """Remove agent from the system and notify backend.
+        Priority order:
+          1. Read manifest → delete every tracked decoy/honeytoken by exact path
+          2. Pattern-scan strategic dirs as fallback for anything not in manifest
+          3. Remove scheduled task and installation directory
+        """
         try:
             self.registration.send_uninstall_complete(node_id, node_api_key)
         except Exception:
@@ -281,27 +286,37 @@ class DeceptionAgent:
         install_dir = Path(__file__).resolve().parent
         system = platform.system().lower()
 
+        # Collect manifest paths (exact files we deployed)
+        manifest_paths = self._load_manifest_paths()
+
+        # Also include manifest files themselves so they are cleaned up
+        manifest_file_locations = [
+            str(Path.home() / "AppData" / "Local" / ".cache" / ".honeytoken_manifest.json"),
+            str(Path.home() / ".cache" / ".honeytoken_manifest.json"),
+            str(install_dir / "deployment_manifest.json"),
+        ]
+        all_exact_paths = manifest_paths + manifest_file_locations
+
         if system == "windows":
-            # PowerShell script with elevation to delete task, folder, and honeytokens
+            # Build the exact-path deletion block for PowerShell
+            exact_deletions = "\n".join(
+                f'Remove-Item -LiteralPath "{p}" -Force -ErrorAction SilentlyContinue'
+                for p in all_exact_paths
+            )
+
             ps_script = f"""
 $ErrorActionPreference = 'SilentlyContinue'
 
 # Request admin elevation if needed
 if (-NOT ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] 'Administrator')) {{
-    Start-Process powershell.exe -Verb runas -ArgumentList "-Command", "$_"
+    Start-Process powershell.exe -Verb runas -ArgumentList "-File", $MyInvocation.MyCommand.Path
     exit
 }}
 
-# Delete scheduled task
-schtasks /Delete /TN DecoyVerseAgent /F
+# ── 1. Delete exact manifest files (tracked decoys & honeytokens) ─────────
+{exact_deletions}
 
-# Wait for task to be deleted
-Start-Sleep -Seconds 2
-
-# Delete installation directory
-Remove-Item -Path "{install_dir}" -Recurse -Force -ErrorAction SilentlyContinue
-
-# Delete deployed honeytokens from strategic locations
+# ── 2. Pattern-scan fallback (catches anything not in manifest) ───────────
 $home = [Environment]::GetFolderPath('UserProfile')
 $honeytoken_locations = @(
     "$home\\Documents",
@@ -310,24 +325,31 @@ $honeytoken_locations = @(
     "$home\\.docker",
     "$home\\.kube",
     "$home\\.azure",
-    "$home\\Downloads"
+    "$home\\Downloads",
+    "$home\\AppData\\Local\\.cache"
 )
-
-# Files to remove (honeytokens)
-$honeytoken_files = @(
+$honeytoken_patterns = @(
     '*aws*', '*credentials*', '*secrets*', '*password*', '*token*', '*key*',
     '*db_*', '*database*', '*mysql*', '*postgres*', '*mongodb*',
     '*id_rsa*', '*id_ed25519*', '*authorized_keys*', '*.pem', '*.key',
-    '*kubeconfig*', '*kube_config*', '*.env'
+    '*kubeconfig*', '*kube_config*', '*.env', '*honeytoken*', '*decoy*'
 )
-
-foreach ($location in $honeytoken_locations) {{
-    if (Test-Path $location) {{
-        foreach ($pattern in $honeytoken_files) {{
-            Get-ChildItem -Path $location -Filter $pattern -Force -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+foreach ($loc in $honeytoken_locations) {{
+    if (Test-Path $loc) {{
+        foreach ($pat in $honeytoken_patterns) {{
+            Get-ChildItem -Path $loc -Filter $pat -Force -ErrorAction SilentlyContinue |
+                Remove-Item -Force -ErrorAction SilentlyContinue
         }}
     }}
 }}
+
+# ── 3. Delete scheduled task ──────────────────────────────────────────────
+schtasks /Delete /TN DecoyVerseAgent /F 2>$null
+schtasks /Delete /TN DecoyVerseFirewall /F 2>$null
+Start-Sleep -Seconds 2
+
+# ── 4. Delete installation directory ─────────────────────────────────────
+Remove-Item -Path "{install_dir}" -Recurse -Force -ErrorAction SilentlyContinue
 
 exit
 """
@@ -341,6 +363,13 @@ exit
             except Exception as e:
                 self.log(f"Uninstall error: {e}")
         else:
+            # Linux / macOS — delete exact manifest files first, then install dir
+            for path in all_exact_paths:
+                try:
+                    if os.path.exists(path):
+                        os.remove(path)
+                except Exception:
+                    pass
             try:
                 shutil.rmtree(install_dir, ignore_errors=True)
             except Exception:
