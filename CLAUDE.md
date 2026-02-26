@@ -57,18 +57,23 @@ JWT_SECRET_KEY=your_secret_here
 ML_API_URL=https://ml-modle-v0-2.onrender.com   # or http://localhost:8000 for local
 AUTH_ENABLED=True                                # Set False for demo/testing
 FRONTEND_URL=https://your-vercel-app.vercel.app
+
+# Email relay — all email is sent through Express/SendGrid (NOT Python smtplib)
+# Express backend URL (DecoyVerse-v2 repo, deployed on Render)
+EXPRESS_API_URL=https://decoyverse-v2.onrender.com
+# Must match INTERNAL_SECRET in the Express backend .env
+INTERNAL_SECRET=change_this_to_a_random_string
 ```
 
 **Notification integrations** (optional):
 ```
 SLACK_WEBHOOK_URL=https://hooks.slack.com/...
-SMTP_HOST=smtp.gmail.com
-SMTP_USER=user@gmail.com
-SMTP_PASSWORD=app_password
 TWILIO_ACCOUNT_SID=...
 TWILIO_AUTH_TOKEN=...
 TWILIO_WHATSAPP_FROM=whatsapp:+14155238886
 ```
+
+**Note:** SMTP vars (`SMTP_HOST`, `SMTP_USER`, `SMTP_PASS`) are no longer used. Email is now relayed through Express — see Email section below.
 
 ## Architecture
 
@@ -77,7 +82,7 @@ TWILIO_WHATSAPP_FROM=whatsapp:+14155238886
 ```
 Frontend (React :5173)
        │
-       ├── Express backend (:5000)  ← Auth only (separate repo)
+       ├── Express backend (:5000)  ← Auth + Email (separate repo: DecoyVerse-v2)
        │
        └── FastAPI Backend (:8001)  ← All data (this repo)
                 │
@@ -85,6 +90,24 @@ Frontend (React :5173)
 ```
 
 The Backend API is what the DecoyVerse frontend's `apiClient` talks to. It calls the ML API internally via `backend/services/ml_service.py` — never directly from the frontend.
+
+### Email System (Important Change)
+Email is **no longer sent by Python smtplib**. Cloud providers (Render) block outbound SMTP ports 25/465/587, causing `ENETUNREACH` or connection timeouts.
+
+**Current flow:**
+```
+Python FastAPI detects threat + user has emailAlertTo configured
+  → notification_service.send_email_alert()
+  → httpx POST to EXPRESS_API_URL/api/auth/internal/send-alert-email
+  → Express validates x-internal-secret header
+  → Express sends email via SendGrid API (HTTPS, always works)
+```
+
+**Key file:** `backend/services/notification_service.py` — `send_email_alert()` method
+**Relay endpoint:** `POST /api/auth/internal/send-alert-email` on Express backend
+**Auth:** `x-internal-secret: <INTERNAL_SECRET>` header (shared secret, no JWT)
+
+If `EXPRESS_API_URL` or `INTERNAL_SECRET` are not set, email alerts are silently skipped and an error is logged.
 
 ### ML Pipeline
 
@@ -120,6 +143,7 @@ Agent file monitor detects honeytoken access
   → ml_service.predict_attack() → POST /predict (15s timeout, fallback risk=9)
   → saves event + MLPrediction to MongoDB
   → if risk_score >= 7: creates alert, sends notifications
+    → Slack (direct webhook), WhatsApp (Twilio), Email (Express relay)
 ```
 
 The feature conversion heuristics live in `backend/services/ml_service.py:_convert_to_ml_features()` — this is where file-access events become numeric ML inputs.
@@ -136,6 +160,13 @@ Every MongoDB query in `backend/services/db_service.py` is filtered by `user_id`
 
 `file_monitor.py` watches these files using `watchdog` (Windows `ReadDirectoryChangesW`). Events are deduplicated within a 5-second window. The manifest path defaults to `~/.cache/.honeytoken_manifest.json`.
 
+**Uninstall behavior (`agent.py` `handle_uninstall()`):**
+- Reads `~/.cache/.honeytoken_manifest.json` to get exact deployed file paths
+- Deletes each file by precise path (not glob) — ensures nothing is missed
+- Removes manifest file itself
+- Falls back to pattern scanning as a safety net
+- Removes scheduled tasks: `DecoyVerseAgent`, `DecoyVerseFirewall`
+
 ## Key Files
 
 | File | Purpose |
@@ -149,8 +180,9 @@ Every MongoDB query in `backend/services/db_service.py` is filtered by `user_id`
 | `backend/routes/agent.py` | `/api/agent-alert` — main event ingestion endpoint |
 | `backend/services/ml_service.py` | ML API integration + feature conversion heuristics |
 | `backend/services/db_service.py` | All MongoDB async operations |
+| `backend/services/notification_service.py` | Slack, Email (via Express relay), WhatsApp notifications |
 | `backend/models/log_models.py` | All Pydantic models (15+) |
-| `agent.py` | Endpoint deception agent orchestrator |
+| `agent.py` | Endpoint deception agent orchestrator + uninstall logic |
 | `agent_config.py` | Agent config and backend registration |
 | `file_monitor.py` | File access detection via watchdog |
 
@@ -163,3 +195,6 @@ Both services are deployed on **Render.com**:
 Render free tier has cold starts (~30s). The `ml_service.py` uses a 15-second timeout and falls back to `risk_score=9` for honeytoken events and `risk_score=0` for other failures.
 
 **Alert threshold**: `ALERT_RISK_THRESHOLD = 7` in `backend/config.py` — events with `risk_score >= 7` create a persistent alert and trigger notifications.
+
+**Required env vars on Render (Backend API):**
+`MONGODB_URI`, `JWT_SECRET_KEY`, `ML_API_URL`, `FRONTEND_URL`, `EXPRESS_API_URL`, `INTERNAL_SECRET`
