@@ -299,6 +299,27 @@ class DatabaseService:
         except Exception as e:
             logger.error(f"Error deleting node and decoys for {node_id}: {e}")
             return False
+
+    async def delete_all_node_data(self, node_id: str) -> bool:
+        """Full cascade delete: node + decoys + alerts + events + logs"""
+        if not self._ensure_db():
+            return False
+        try:
+            collections = [
+                DECOYS_COLLECTION,
+                ALERTS_COLLECTION,
+                AGENT_EVENTS_COLLECTION,
+                HONEYPOT_LOGS_COLLECTION,
+                NETWORK_EVENTS_COLLECTION,
+            ]
+            for col in collections:
+                await self.db[col].delete_many({"node_id": node_id})
+            await self.db[NODES_COLLECTION].delete_one({"node_id": node_id})
+            logger.info(f"Full cascade delete completed for node {node_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Error in delete_all_node_data for {node_id}: {e}")
+            return False
     
     async def save_deployed_decoy(self, decoy_data: Dict[str, Any]) -> Optional[str]:
         """Save a deployed decoy from agent (with file_path)"""
