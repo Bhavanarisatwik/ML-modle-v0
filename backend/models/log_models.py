@@ -232,4 +232,20 @@ class RecentAttack(BaseModel):
     service: str
     activity: str
     attack_type: Optional[str] = None
+
+
+class SecurityReport(BaseModel):
+    """Aggregated security health report — one per user, upserted on generate"""
+    user_id: str
+    generated_at: str                  # ISO datetime string
+    health_score: float                # 0.0–10.0 (higher = healthier)
+    total_nodes: int
+    online_nodes: int
+    total_alerts: int
+    open_alerts: int
+    critical_alerts: int               # alerts with risk_score >= 8
+    top_attack_types: List[dict]       # [{"type": str, "count": int}]
+    top_attackers: List[dict]          # [{"ip", "risk_score", "attack_count", "most_common_attack"}]
+    recent_events_count: int           # events in last 24h
+    recommendations: List[str]
     risk_score: Optional[int] = None

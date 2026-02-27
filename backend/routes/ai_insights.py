@@ -5,6 +5,7 @@ ML-powered threat analysis, attacker profiling, and scanner detection
 
 from fastapi import APIRouter, HTTPException, Header
 from typing import List, Optional, Dict, Any
+from datetime import datetime
 import logging
 
 from backend.models.log_models import AttackerProfile
@@ -169,13 +170,13 @@ async def get_attacker_profile(
 ):
     """
     Get detailed attacker profile for specific IP
-    
+
     Returns: Threat analysis including attack history and MITRE mappings
     """
     try:
         # Get profile
         profile = await db_service.get_attacker_profile(source_ip)
-        
+
         if not profile:
             return {
                 "ip": source_ip,
@@ -186,8 +187,162 @@ async def get_attacker_profile(
                 "activity_count": 0,
                 "last_seen": None
             }
-        
+
         return AttackerProfileResponse(profile).to_dict()
     except Exception as e:
         logger.error(f"Error getting attacker profile: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── Security Report Helpers ─────────────────────────────────────────────────
+
+def _compute_health_score(
+    total_nodes: int,
+    online_nodes: int,
+    open_alerts: int,
+    critical_alerts: int,
+    total_alerts: int,
+) -> float:
+    """
+    Health score 0–10 (higher is healthier).
+    Deductions: offline nodes (-3), open alerts (-4), critical alerts (-3).
+    """
+    score = 10.0
+    if total_nodes > 0:
+        score -= ((total_nodes - online_nodes) / total_nodes) * 3.0
+    if total_alerts > 0:
+        score -= (min(open_alerts / total_alerts, 1.0)) * 4.0
+    elif open_alerts > 0:
+        score -= min(open_alerts * 0.5, 4.0)
+    if total_alerts > 0:
+        score -= (min(critical_alerts / total_alerts, 1.0)) * 3.0
+    return round(max(0.0, min(10.0, score)), 1)
+
+
+def _generate_recommendations(
+    health_score: float,
+    online_nodes: int,
+    total_nodes: int,
+    critical_alerts: int,
+    open_alerts: int,
+    top_attack_types: list,
+) -> list:
+    """Return actionable recommendations based on current security posture."""
+    recs = []
+    if health_score < 4.0:
+        recs.append("CRITICAL: Security posture is severely degraded. Immediately review all open alerts.")
+    if total_nodes > 0 and online_nodes < total_nodes:
+        offline = total_nodes - online_nodes
+        recs.append(f"{offline} node(s) are offline. Verify agent connectivity and restart if needed.")
+    if critical_alerts > 0:
+        recs.append(f"Investigate {critical_alerts} critical alert(s) with risk score ≥ 8 immediately.")
+    if open_alerts > 5:
+        recs.append(f"You have {open_alerts} unresolved alerts. Triage and resolve or dismiss stale ones.")
+    if top_attack_types:
+        top_type = top_attack_types[0].get("type", "unknown")
+        recs.append(f"Most common attack type is '{top_type}'. Deploy targeted decoys to increase attacker dwell time.")
+    if not recs:
+        recs.append("Security posture is healthy. Continue monitoring and keep agents up to date.")
+    return recs
+
+
+# ─── Report Endpoints ─────────────────────────────────────────────────────────
+
+@router.post("/report")
+async def generate_security_report(
+    authorization: Optional[str] = Header(None)
+):
+    """
+    Generate and save a security health report for the authenticated user.
+    Aggregates: node health, alert counts, attack types, top attackers, recent events.
+    One report per user — new report replaces the previous one in the DB.
+    """
+    try:
+        user_id = get_user_id_from_header(authorization)
+
+        # 1. Node stats
+        nodes = await db_service.get_nodes_by_user(user_id)
+        total_nodes = len(nodes)
+        online_nodes = sum(1 for n in nodes if n.get("status") in ("active", "online"))
+
+        # 2. Alert aggregation
+        all_alerts = await db_service.get_alerts_by_user(user_id)
+        total_alerts = len(all_alerts)
+        open_alerts = sum(1 for a in all_alerts if a.get("status", "open") == "open")
+        critical_alerts = sum(1 for a in all_alerts if (a.get("risk_score") or 0) >= 8)
+
+        # 3. Attack type distribution
+        attack_type_counts: Dict[str, int] = {}
+        for alert in all_alerts:
+            at = alert.get("attack_type") or alert.get("activity") or "unknown"
+            attack_type_counts[at] = attack_type_counts.get(at, 0) + 1
+        top_attack_types = sorted(
+            [{"type": k, "count": v} for k, v in attack_type_counts.items()],
+            key=lambda x: x["count"],
+            reverse=True
+        )[:10]
+
+        # 4. Top attackers (from global attacker_profiles, filtered to this user's alert IPs)
+        user_ips = {a.get("source_ip") for a in all_alerts if a.get("source_ip")}
+        raw_profiles = await db_service.get_top_attacker_profiles(20)
+        top_attackers = [
+            {
+                "ip": p.get("source_ip", ""),
+                "risk_score": round(float(p.get("average_risk_score", 0)), 1),
+                "attack_count": p.get("total_attacks", 0),
+                "most_common_attack": p.get("most_common_attack", ""),
+            }
+            for p in raw_profiles
+            if p.get("source_ip") in user_ips
+        ][:5]
+
+        # 5. Recent events count (last 24h)
+        recent_events_count = await db_service.get_recent_events_count(user_id, hours=24)
+
+        # 6. Health score + recommendations
+        health_score = _compute_health_score(
+            total_nodes, online_nodes, open_alerts, critical_alerts, total_alerts
+        )
+        recommendations = _generate_recommendations(
+            health_score, online_nodes, total_nodes,
+            critical_alerts, open_alerts, top_attack_types
+        )
+
+        # 7. Save (upsert) report
+        report_data = {
+            "user_id": user_id,
+            "generated_at": datetime.utcnow().isoformat(),
+            "health_score": health_score,
+            "total_nodes": total_nodes,
+            "online_nodes": online_nodes,
+            "total_alerts": total_alerts,
+            "open_alerts": open_alerts,
+            "critical_alerts": critical_alerts,
+            "top_attack_types": top_attack_types,
+            "top_attackers": top_attackers,
+            "recent_events_count": recent_events_count,
+            "recommendations": recommendations,
+        }
+        await db_service.save_report(report_data)
+        return report_data
+
+    except Exception as e:
+        logger.error(f"Error generating security report: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/report")
+async def get_security_report(
+    authorization: Optional[str] = Header(None)
+):
+    """
+    Retrieve the last saved security report for the authenticated user.
+    Returns { exists: false } if no report has been generated yet.
+    """
+    try:
+        user_id = get_user_id_from_header(authorization)
+        report = await db_service.get_report(user_id)
+        return {"exists": bool(report), "report": report}
+    except Exception as e:
+        logger.error(f"Error getting security report: {e}")
         raise HTTPException(status_code=500, detail=str(e))
