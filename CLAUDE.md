@@ -175,6 +175,16 @@ Every MongoDB query in `backend/services/db_service.py` is filtered by `user_id`
 - Falls back to pattern scanning as a safety net
 - Removes scheduled tasks: `DecoyVerseAgent`, `DecoyVerseFirewall`
 
+## Efficient Editing
+
+- **All Pydantic models** → `backend/models/log_models.py` (edit here first for any schema change)
+- **All MongoDB operations** → `backend/services/db_service.py` (never add direct pymongo in routes)
+- **Every DB query must include `user_id` filter** — all data is user-scoped; missing it leaks cross-user data
+- **ML feature order is fixed** — must always be in this exact sequence:
+  `failed_logins, request_rate, commands_count, sql_payload, honeytoken_access, session_time`
+  Defined in `feature_extractor.py`; conversion heuristics in `backend/services/ml_service.py:_convert_to_ml_features()`
+- **Notifications** → always go through `backend/services/notification_service.py` — do not call Slack/Twilio/email directly from routes
+
 ## Key Files
 
 | File | Purpose |
