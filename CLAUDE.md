@@ -2,6 +2,14 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Recommendations
+
+See [`../docs/recommendation.md`](../docs/recommendation.md) for known issues and improvement areas (security, reliability, code quality, testing, DX).
+
+## Working Directory
+
+The root may shift between `Major-project/` and this sub-project directory during a session. Always maintain full context of all system components (React frontend, Express backend, FastAPI backend, ML service, endpoint agent). See `Major-project/CLAUDE.md` for the monorepo overview and `Major-project/DecoyVerse-v2/CLAUDE.md` for the frontend/Express details.
+
 ## Project Overview
 
 ML-Modle v0 is the cybersecurity ML backend for DecoyVerse. It has two independently deployable services:
