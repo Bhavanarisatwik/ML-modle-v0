@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Recommendations
 
-See [`../docs/recommendation.md`](../docs/recommendation.md) for known issues and improvement areas (security, reliability, code quality, testing, DX).
+See `../docs/recommendation.md` (from this sub-project) or `docs/recommendation.md` (from repo root) for known issues and improvement areas (security, reliability, code quality, testing, DX).
 
 ## Working Directory
 
@@ -184,6 +184,7 @@ Every MongoDB query in `backend/services/db_service.py` is filtered by `user_id`
   `failed_logins, request_rate, commands_count, sql_payload, honeytoken_access, session_time`
   Defined in `feature_extractor.py`; conversion heuristics in `backend/services/ml_service.py:_convert_to_ml_features()`
 - **Notifications** → always go through `backend/services/notification_service.py` — do not call Slack/Twilio/email directly from routes
+- **`/api/honeytokels` typo:** Production endpoint is misspelled ("honeytokels" not "honeytokens") — do not rename it in code, just be aware when referencing it
 
 ## Key Files
 
