@@ -371,7 +371,11 @@ class NotificationService:
             # Persist tracking fields to DB
             if alert_id:
                 from backend.services.db_service import db_service
-                await db_service.update_alert_notification(alert_id, notified, notification_status)
+                try:
+                    await db_service.update_alert_notification(alert_id, notified, notification_status)
+                except Exception as db_err:
+                    # Log clearly — alert will re-broadcast next cycle since notified=False in DB
+                    logger.error(f"⚠️  Failed to persist notification status for {alert_id}: {db_err}")
             else:
                 logger.warning("broadcast_alert: alert_id is None — cannot persist notification status")
 

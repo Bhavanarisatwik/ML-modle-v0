@@ -175,7 +175,8 @@ class NetworkMonitor:
         try:
             connections = psutil.net_connections(kind="inet")
         except (psutil.AccessDenied, PermissionError) as e:
-            logger.warning(f"Cannot read net_connections (permissions): {e}")
+            logger.warning(f"⚠️  Network monitoring requires elevated permissions: {e}")
+            logger.warning("Network detection is DISABLED for this poll — run agent as admin/root to enable it")
             return
 
         suspicious: List[Dict[str, Any]] = []
@@ -220,7 +221,7 @@ class NetworkMonitor:
                     "dest_ip": dest_ip,
                     "dest_port": dest_port,
                     "source_ip": conn.laddr.ip if conn.laddr else socket.gethostname(),
-                    "protocol": "TCP" if conn.type == 1 else "UDP",
+                    "protocol": "TCP" if conn.type == socket.SOCK_STREAM else "UDP",
                     "process_name": proc_name,
                     "rule_score": score,
                     "rule_triggers": triggers,
@@ -273,15 +274,11 @@ class NetworkMonitor:
         try:
             features = {
                 "failed_logins": 0,
-                "request_rate": self._window.total_count(),
-                "commands_count": len(self._window.unique_dest_ports()),
+                "request_rate": min(self._window.total_count() * 10, 600),
+                "commands_count": min(len(self._window.unique_dest_ports()), 20),
                 "sql_payload": 0,
                 "honeytoken_access": 0,
-                "session_time": POLL_INTERVAL,
-                # Extended network features (ignored by old model, used by new)
-                "dest_port": item["dest_port"],
-                "is_high_risk_port": 1 if item["dest_port"] in HIGH_RISK_PORTS else 0,
-                "rule_score": item["rule_score"],
+                "session_time": max(POLL_INTERVAL, 10),
             }
             resp = requests.post(self.ml_endpoint, json=features, timeout=10)
             if resp.status_code == 200:

@@ -79,10 +79,20 @@ class MLService:
                 is_anomaly=True
             )
             
+        # For non-honeytoken events, fall back to rule_score if available
+        # so real attacks (BruteForce, Recon, etc.) are NOT silently dropped
+        rule_score = int(log_data.get("rule_score", 0))
+        if rule_score >= 7:
+            return MLPrediction(
+                attack_type=log_data.get("ml_attack_type") or "network_anomaly",
+                risk_score=rule_score,
+                confidence=0.5,
+                is_anomaly=True
+            )
         return MLPrediction(
             attack_type="unknown",
-            risk_score=0,
-            confidence=0.0,
+            risk_score=max(rule_score, 3),
+            confidence=0.3,
             is_anomaly=False
         )
     

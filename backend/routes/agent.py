@@ -190,7 +190,7 @@ async def receive_agent_event(
             alert = Alert(
                 alert_id=f"AGENT-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}-{event.hostname[:8]}",
                 timestamp=event.timestamp,
-                source_ip=event.hostname,  # Use hostname as identifier
+                source_ip=client_ip or event.hostname,
                 service="endpoint_agent",
                 attack_type=ml_prediction.attack_type,
                 risk_score=ml_prediction.risk_score,
@@ -207,10 +207,10 @@ async def receive_agent_event(
             # Fire notifications asynchronously across all channels (Slack/Email/WhatsApp)
             asyncio.create_task(notification_service.broadcast_alert(alert))
         
-        # Step 7: Update attacker profile (use hostname as IP)
+        # Step 7: Update attacker profile
         if ml_prediction:
             await db_service.update_attacker_profile(
-                source_ip=event.hostname,
+                source_ip=client_ip or event.hostname,
                 attack_type=ml_prediction.attack_type,
                 risk_score=ml_prediction.risk_score,
                 service="endpoint_agent"

@@ -218,7 +218,7 @@ echo -e "${GREEN}[OK] Created agent: $INSTALL_DIR/agent.py${NC}"
 
 # Install dependencies
 echo -e "${YELLOW}[INFO] Installing Python dependencies...${NC}"
-pip3 install requests watchdog --quiet 2>/dev/null || pip install requests watchdog --quiet
+pip3 install requests watchdog scapy --quiet 2>/dev/null || pip install requests watchdog scapy --quiet
 echo -e "${GREEN}[OK] Dependencies installed${NC}"
 
 # Create systemd service

@@ -248,9 +248,28 @@ $AgentPath = "$InstallDir\agent.py"
 $AgentScript | Out-File -FilePath $AgentPath -Encoding UTF8
 Write-Host "[OK] Created agent: $AgentPath" -ForegroundColor Green
 
+# Install Npcap (required by scapy for packet-level scan detection)
+Write-Host "[INFO] Checking for Npcap (required for inbound scan detection)..." -ForegroundColor Yellow
+$npcapSvc = Get-Service -Name "npcap" -ErrorAction SilentlyContinue
+if (-not $npcapSvc) {
+    try {
+        $NpcapUrl = "https://npcap.com/dist/npcap-1.79.exe"
+        $NpcapPath = "$env:TEMP\npcap-installer.exe"
+        Write-Host "[INFO] Downloading Npcap..." -ForegroundColor Yellow
+        Invoke-WebRequest -Uri $NpcapUrl -OutFile $NpcapPath -UseBasicParsing
+        Start-Process -FilePath $NpcapPath -ArgumentList "/S" -Wait -NoNewWindow
+        Write-Host "[OK] Npcap installed — inbound scan detection enabled" -ForegroundColor Green
+    } catch {
+        Write-Host "[WARN] Npcap install failed: $($_.Exception.Message)" -ForegroundColor Yellow
+        Write-Host "[WARN] Packet-level scan detection will not be available" -ForegroundColor Yellow
+    }
+} else {
+    Write-Host "[OK] Npcap already installed" -ForegroundColor Green
+}
+
 # Install dependencies
 Write-Host "[INFO] Installing Python dependencies..." -ForegroundColor Yellow
-pip install requests watchdog --quiet
+pip install requests watchdog scapy --quiet
 Write-Host "[OK] Dependencies installed" -ForegroundColor Green
 
 # Create start script

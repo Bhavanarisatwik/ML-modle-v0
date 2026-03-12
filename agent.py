@@ -14,6 +14,7 @@ from file_monitor import FileMonitor
 from alert_sender import AlertSender
 from agent_config import AgentConfig, AgentRegistration, ensure_agent_registered
 from network_monitor import NetworkMonitor
+from packet_monitor import PacketMonitor
 import threading
 
 # Configure logging to write to agent.log
@@ -48,6 +49,11 @@ class DeceptionAgent:
         )
         self.registration = AgentRegistration(self.config)
         self.network_monitor = NetworkMonitor(
+            backend_url=backend_url,
+            node_id=node_id,
+            node_api_key=node_api_key,
+        )
+        self.packet_monitor = PacketMonitor(
             backend_url=backend_url,
             node_id=node_id,
             node_api_key=node_api_key,
@@ -412,11 +418,13 @@ exit
         print(f"   Monitoring: {self.watch_dir}")
         print(f"   Check interval: {interval} seconds")
         print(f"   Backend connection: {'✓ Active' if backend_available else '✗ Inactive'}")
-        print(f"   Network monitoring: ✓ Active")
+        print(f"   Network monitoring: ✓ Active (outbound connections)")
+        print(f"   Packet monitoring:  ✓ Active (inbound scan detection — requires admin)")
         print(f"\n   Press Ctrl+C to stop\n")
         self.log(f"Agent started - monitoring {len(self.monitor.monitored_files)} files, interval={interval}s")
 
         self.network_monitor.start()
+        self.packet_monitor.start()
         self.running = True
         
         try:
@@ -434,6 +442,7 @@ exit
         """Stop the agent gracefully"""
         self.running = False
         self.network_monitor.stop()
+        self.packet_monitor.stop()
         print("\n\n" + "="*70)
         print("🛑 AGENT STOPPED")
         print("="*70)
