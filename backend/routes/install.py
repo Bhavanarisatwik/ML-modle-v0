@@ -305,7 +305,7 @@ if (Test-Path $configSource) {{
 # Step 4: Download agent files
 Write-Status "[4/6] Downloading agent files..." "Cyan"
 $baseUrl = "https://raw.githubusercontent.com/Bhavanarisatwik/ML-modle-v0/main"
-$files = @("agent.py", "agent_setup.py", "agent_config.py", "file_monitor.py", "alert_sender.py")
+$files = @("agent.py", "agent_setup.py", "agent_config.py", "file_monitor.py", "alert_sender.py", "network_monitor.py", "packet_monitor.py")
 $downloadSuccess = $true
 
 foreach ($file in $files) {{
@@ -326,8 +326,26 @@ if (-not $downloadSuccess) {{
 # Step 5: Install Python dependencies
 Write-Status "[5/6] Installing Python dependencies..." "Cyan"
 & $pythonCmd -m pip install --quiet --upgrade pip 2>&1 | Out-Null
-& $pythonCmd -m pip install --quiet requests watchdog psutil 2>&1 | Out-Null
+& $pythonCmd -m pip install --quiet requests watchdog psutil scapy 2>&1 | Out-Null
 Write-Status "      Dependencies installed" "Green"
+
+# Install Npcap (required by scapy for packet-level inbound scan detection)
+Write-Status "      Checking Npcap (for inbound scan detection)..." "Cyan"
+$npcapSvc = Get-Service -Name "npcap" -ErrorAction SilentlyContinue
+if (-not $npcapSvc) {{
+    try {{
+        $NpcapUrl = "https://npcap.com/dist/npcap-1.79.exe"
+        $NpcapPath = "$env:TEMP
+pcap-installer.exe"
+        Invoke-WebRequest -Uri $NpcapUrl -OutFile $NpcapPath -UseBasicParsing -ErrorAction Stop
+        Start-Process -FilePath $NpcapPath -ArgumentList "/S" -Wait -NoNewWindow
+        Write-Status "      Npcap installed - inbound scan detection enabled" "Green"
+    }} catch {{
+        Write-Status "      Npcap install skipped (optional) - packet scan detection unavailable" "Yellow"
+    }}
+}} else {{
+    Write-Status "      Npcap already installed" "Green"
+}}
 
 # Step 6: Create startup task and start agent
 Write-Status "[6/6] Setting up auto-start and launching agent..." "Cyan"

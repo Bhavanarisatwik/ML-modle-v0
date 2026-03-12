@@ -18,11 +18,14 @@ from backend.config import (
     USERS_COLLECTION,
     NODES_COLLECTION,
     DECOYS_COLLECTION,
+    NETWORK_EVENTS_COLLECTION,
+    BLOCKED_IPS_COLLECTION,
+    SECURITY_REPORTS_COLLECTION,
     ALERT_RISK_THRESHOLD,
     AUTH_ENABLED,
     DEMO_USER_ID
 )
-from backend.models.log_models import Alert, AttackerProfile
+from backend.models.log_models import Alert, AttackerProfile, NetworkEvent, BlockedIP
 
 logger = logging.getLogger(__name__)
 
@@ -89,11 +92,18 @@ class DatabaseService:
             return None
     
     async def get_user_by_id(self, user_id: str) -> Optional[Dict[str, Any]]:
-        """Get user by ID"""
+        """Get user by ID — Express stores users with _id as ObjectId"""
         try:
             if self.db is None:
                 return None
-            user = await self.db[USERS_COLLECTION].find_one({"id": user_id})
+            from bson import ObjectId
+            try:
+                user = await self.db[USERS_COLLECTION].find_one({"_id": ObjectId(user_id)})
+            except Exception:
+                # Fallback: plain string id field (non-ObjectId stored IDs)
+                user = await self.db[USERS_COLLECTION].find_one({"id": user_id})
+            if user:
+                user["_id"] = str(user["_id"])
             return user
         except Exception as e:
             logger.error(f"Error getting user by ID: {e}")
@@ -290,6 +300,27 @@ class DatabaseService:
         except Exception as e:
             logger.error(f"Error deleting node and decoys for {node_id}: {e}")
             return False
+
+    async def delete_all_node_data(self, node_id: str) -> bool:
+        """Full cascade delete: node + decoys + alerts + events + logs"""
+        if not self._ensure_db():
+            return False
+        try:
+            collections = [
+                DECOYS_COLLECTION,
+                ALERTS_COLLECTION,
+                AGENT_EVENTS_COLLECTION,
+                HONEYPOT_LOGS_COLLECTION,
+                NETWORK_EVENTS_COLLECTION,
+            ]
+            for col in collections:
+                await self.db[col].delete_many({"node_id": node_id})
+            await self.db[NODES_COLLECTION].delete_one({"node_id": node_id})
+            logger.info(f"Full cascade delete completed for node {node_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Error in delete_all_node_data for {node_id}: {e}")
+            return False
     
     async def save_deployed_decoy(self, decoy_data: Dict[str, Any]) -> Optional[str]:
         """Save a deployed decoy from agent (with file_path)"""
@@ -372,15 +403,71 @@ class DatabaseService:
     # ==================== ALERT OPERATIONS ====================
     
     async def create_alert(self, alert: Alert) -> Optional[str]:
-        """Create high-risk alert"""
+        """Create high-risk alert and back-fill alert_id on the model"""
         try:
             alert_dict = alert.dict()
             result = await self.db[ALERTS_COLLECTION].insert_one(alert_dict)
+            alert_id = str(result.inserted_id)
+
+            # Store alert_id in the document so future lookups work
+            await self.db[ALERTS_COLLECTION].update_one(
+                {"_id": result.inserted_id},
+                {"$set": {"alert_id": alert_id}}
+            )
+
+            # Mutate the Pydantic model so the caller (e.g. notification_service) sees the ID
+            try:
+                alert.alert_id = alert_id
+            except Exception:
+                pass
+
             logger.warning(f"🚨 ALERT CREATED: {alert.attack_type} from {alert.source_ip}")
-            return str(result.inserted_id)
+            return alert_id
         except Exception as e:
             logger.error(f"Error creating alert: {e}")
             return None
+
+    async def update_alert_status(self, alert_id: str, status: str) -> bool:
+        """Update the status field of an alert (open / investigating / resolved)"""
+        try:
+            if self.db is None:
+                return False
+            from bson import ObjectId
+            try:
+                result = await self.db[ALERTS_COLLECTION].update_one(
+                    {"_id": ObjectId(alert_id)},
+                    {"$set": {"status": status}}
+                )
+            except Exception:
+                result = await self.db[ALERTS_COLLECTION].update_one(
+                    {"alert_id": alert_id},
+                    {"$set": {"status": status}}
+                )
+            return result.modified_count > 0
+        except Exception as e:
+            logger.error(f"Error updating alert status: {e}")
+            return False
+
+    async def update_alert_notification(self, alert_id: str, notified: bool, notification_status: str) -> bool:
+        """Update notification tracking fields on an alert"""
+        try:
+            if self.db is None:
+                return False
+            from bson import ObjectId
+            try:
+                result = await self.db[ALERTS_COLLECTION].update_one(
+                    {"_id": ObjectId(alert_id)},
+                    {"$set": {"notified": notified, "notification_status": notification_status}}
+                )
+            except Exception:
+                result = await self.db[ALERTS_COLLECTION].update_one(
+                    {"alert_id": alert_id},
+                    {"$set": {"notified": notified, "notification_status": notification_status}}
+                )
+            return result.modified_count > 0
+        except Exception as e:
+            logger.error(f"Error updating alert notification: {e}")
+            return False
     
     async def get_recent_alerts(self, limit: int = 10, user_id: Optional[str] = None) -> List[Dict]:
         """Get recent alerts"""
@@ -729,6 +816,163 @@ class DatabaseService:
                 "active_nodes": 0,
                 "recent_risk_average": 0.0
             }
+
+
+    # ==================== NETWORK EVENT OPERATIONS ====================
+
+    async def save_network_event(self, event: NetworkEvent) -> Optional[str]:
+        """Store a network connection event from the agent network monitor"""
+        try:
+            if self.db is None:
+                return None
+            doc = event.dict()
+            result = await self.db[NETWORK_EVENTS_COLLECTION].insert_one(doc)
+            return str(result.inserted_id)
+        except Exception as e:
+            logger.error(f"Error saving network event: {e}")
+            return None
+
+    async def get_recent_network_events(self, limit: int = 50, user_id: Optional[str] = None) -> List[Dict]:
+        """Fetch recent network events, optionally scoped to a user"""
+        try:
+            if self.db is None:
+                return []
+            query: Dict[str, Any] = {}
+            if AUTH_ENABLED and user_id:
+                query = {"user_id": user_id}
+            cursor = self.db[NETWORK_EVENTS_COLLECTION].find(query).sort("timestamp", -1).limit(limit)
+            events = await cursor.to_list(length=limit)
+            for e in events:
+                e["_id"] = str(e["_id"])
+            return events
+        except Exception as e:
+            logger.error(f"Error getting network events: {e}")
+            return []
+
+    # ==================== BLOCKED IP OPERATIONS ====================
+
+    async def add_blocked_ip(self, block: BlockedIP) -> Optional[str]:
+        """Queue an IP block request (status='pending')"""
+        try:
+            if self.db is None:
+                return None
+            doc = block.dict()
+            result = await self.db[BLOCKED_IPS_COLLECTION].insert_one(doc)
+            return str(result.inserted_id)
+        except Exception as e:
+            logger.error(f"Error adding blocked IP: {e}")
+            return None
+
+    async def get_pending_blocks(self, node_id: str) -> List[str]:
+        """Return list of IP addresses pending a firewall block on this node"""
+        try:
+            if self.db is None:
+                return []
+            cursor = self.db[BLOCKED_IPS_COLLECTION].find(
+                {"node_id": node_id, "status": "pending"}
+            )
+            docs = await cursor.to_list(length=100)
+            return [d["ip_address"] for d in docs]
+        except Exception as e:
+            logger.error(f"Error getting pending blocks: {e}")
+            return []
+
+    async def confirm_block(self, node_id: str, ip_address: str) -> bool:
+        """Mark an IP block as active once the agent confirms the firewall rule was added"""
+        try:
+            if self.db is None:
+                return False
+            result = await self.db[BLOCKED_IPS_COLLECTION].update_many(
+                {"node_id": node_id, "ip_address": ip_address, "status": "pending"},
+                {"$set": {"status": "active", "confirmed_at": datetime.utcnow().isoformat()}}
+            )
+            return result.modified_count > 0
+        except Exception as e:
+            logger.error(f"Error confirming block: {e}")
+            return False
+
+    async def get_blocked_ips(self, user_id: Optional[str] = None) -> List[Dict]:
+        """Return all blocked IPs, optionally scoped to a user's nodes"""
+        try:
+            if self.db is None:
+                return []
+            query: Dict[str, Any] = {}
+            if AUTH_ENABLED and user_id:
+                # Get user's node IDs first
+                node_ids = [n["node_id"] for n in await self.get_nodes_by_user(user_id)]
+                query = {"node_id": {"$in": node_ids}}
+            cursor = self.db[BLOCKED_IPS_COLLECTION].find(query).sort("requested_at", -1)
+            docs = await cursor.to_list(length=500)
+            for d in docs:
+                d["_id"] = str(d["_id"])
+            return docs
+        except Exception as e:
+            logger.error(f"Error getting blocked IPs: {e}")
+            return []
+
+
+    # ==================== SECURITY REPORT OPERATIONS ====================
+
+    async def save_report(self, report_data: dict) -> bool:
+        """Upsert security report — one record per user_id (new replaces old)"""
+        if not self._ensure_db():
+            return False
+        try:
+            await self.db[SECURITY_REPORTS_COLLECTION].update_one(
+                {"user_id": report_data["user_id"]},
+                {"$set": report_data},
+                upsert=True
+            )
+            logger.info(f"Security report saved for user {report_data['user_id']}")
+            return True
+        except Exception as e:
+            logger.error(f"Error saving security report: {e}")
+            return False
+
+    async def get_report(self, user_id: str) -> Optional[dict]:
+        """Get saved security report for user, or None if not generated yet"""
+        if not self._ensure_db():
+            return None
+        try:
+            report = await self.db[SECURITY_REPORTS_COLLECTION].find_one({"user_id": user_id})
+            if report:
+                report["_id"] = str(report["_id"])
+            return report
+        except Exception as e:
+            logger.error(f"Error getting security report: {e}")
+            return None
+
+    async def get_alerts_by_user(self, user_id: str) -> List[Dict]:
+        """Get all alerts for a user (for report aggregation)"""
+        if not self._ensure_db():
+            return []
+        try:
+            query = {"user_id": user_id} if AUTH_ENABLED else {}
+            cursor = self.db[ALERTS_COLLECTION].find(query)
+            alerts = await cursor.to_list(length=10000)
+            for a in alerts:
+                a["_id"] = str(a["_id"])
+            return alerts
+        except Exception as e:
+            logger.error(f"Error getting alerts for user: {e}")
+            return []
+
+    async def get_recent_events_count(self, user_id: str, hours: int = 24) -> int:
+        """Count honeypot + agent events in the last N hours for a user's nodes"""
+        if not self._ensure_db():
+            return 0
+        try:
+            from datetime import timedelta
+            cutoff = (datetime.utcnow() - timedelta(hours=hours)).isoformat()
+            nodes = await self.get_nodes_by_user(user_id)
+            node_ids = [n["node_id"] for n in nodes]
+            q = {"node_id": {"$in": node_ids}, "timestamp": {"$gte": cutoff}}
+            h_count = await self.db[HONEYPOT_LOGS_COLLECTION].count_documents(q)
+            a_count = await self.db[AGENT_EVENTS_COLLECTION].count_documents(q)
+            return h_count + a_count
+        except Exception as e:
+            logger.error(f"Error counting recent events: {e}")
+            return 0
 
 
 # Singleton instance

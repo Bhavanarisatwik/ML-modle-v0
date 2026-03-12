@@ -130,6 +130,11 @@ class AlertSender:
                 "severity": alert.get('severity', 'HIGH'),
                 "alert_type": alert.get('alert_type', 'HONEYTOKEN_ACCESS'),
             }
+
+            # Include process metadata if captured by file_monitor
+            for field in ('process_name', 'pid', 'process_user', 'cmdline'):
+                if alert.get(field) is not None:
+                    payload[field] = alert[field]
             
             # Send with node auth headers
             response = requests.post(

@@ -29,6 +29,10 @@ ATTACKER_PROFILES_COLLECTION = "attacker_profiles"
 USERS_COLLECTION = "users"
 NODES_COLLECTION = "nodes"
 DECOYS_COLLECTION = "decoys"
+NETWORK_EVENTS_COLLECTION = "network_events"
+BLOCKED_IPS_COLLECTION = "blocked_ips"
+SECURITY_REPORTS_COLLECTION = "security_reports"
+
 
 # ML Service URL
 ML_API_URL = os.getenv("ML_API_URL", "https://ml-modle-v0-2.onrender.com")
@@ -105,3 +109,12 @@ TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
 TWILIO_WHATSAPP_NUMBER = os.getenv("TWILIO_WHATSAPP_NUMBER")
 ALERT_WHATSAPP_TO = os.getenv("ALERT_WHATSAPP_TO")
+
+# ---------------------------------------------------------
+# Threat Intelligence
+# ---------------------------------------------------------
+
+# AbuseIPDB — optional. Free tier: 1 000 checks/day.
+# Get a free key at https://www.abuseipdb.com/register
+# If not set, AbuseIPDB lookups are silently skipped.
+ABUSEIPDB_API_KEY = os.getenv("ABUSEIPDB_API_KEY")

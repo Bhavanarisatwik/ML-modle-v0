@@ -13,6 +13,8 @@ from agent_setup import HoneytokenSetup
 from file_monitor import FileMonitor
 from alert_sender import AlertSender
 from agent_config import AgentConfig, AgentRegistration, ensure_agent_registered
+from network_monitor import NetworkMonitor
+from packet_monitor import PacketMonitor
 import threading
 
 # Configure logging to write to agent.log
@@ -46,9 +48,20 @@ class DeceptionAgent:
             node_api_key=node_api_key
         )
         self.registration = AgentRegistration(self.config)
+        self.network_monitor = NetworkMonitor(
+            backend_url=backend_url,
+            node_id=node_id,
+            node_api_key=node_api_key,
+        )
+        self.packet_monitor = PacketMonitor(
+            backend_url=backend_url,
+            node_id=node_id,
+            node_api_key=node_api_key,
+        )
         self.running = False
         self.last_heartbeat = 0.0
         self.log_path = Path(__file__).resolve().parent / "agent.log"
+        self._last_deployment_config: dict = {}
 
     def log(self, message: str):
         """Log to both agent.log file and Python logger"""
@@ -185,6 +198,56 @@ class DeceptionAgent:
                 self.log(f"Sending alert: {alert.get('file_accessed', 'unknown')} - {alert.get('action', 'unknown')}")
                 self.sender.send_alert(alert)
 
+    def _on_deployment_config_updated(self, deployment_config: dict):
+        """Deploy additional honeytokens when the dashboard increases the requested count."""
+        before_paths = {d.get('path', '') for d in (self.setup.decoys + self.setup.honeytokens)}
+
+        deployed = self.setup.setup_all(deployment_config)
+
+        if not deployed:
+            return
+
+        after_paths = {d.get('path', '') for d in (self.setup.decoys + self.setup.honeytokens)}
+        new_paths = [p for p in (after_paths - before_paths) if p and os.path.exists(p)]
+
+        if not new_paths:
+            return
+
+        # Wire new files into the file monitor
+        self.monitor.add_files(new_paths)
+        self.log(f"Added {len(new_paths)} new decoy file(s) to monitoring")
+
+        # Register new decoys with the backend so the dashboard sees them
+        node_id = self.config.get_node_id()
+        node_api_key = self.config.get_node_api_key()
+        if node_id and node_api_key:
+            new_decoys = [
+                {
+                    "file_path": p,
+                    "file_name": os.path.basename(p),
+                    "type": "honeytoken",
+                    "status": "active",
+                    "auto_deployed": True,
+                }
+                for p in new_paths
+            ]
+            self.registration.register_deployed_decoys(node_id, node_api_key, new_decoys)
+
+    def _write_pending_blocks(self, ips: list):
+        """Merge new IPs into pending_blocks.json so dv_firewall.py can pick them up."""
+        blocks_path = Path(__file__).resolve().parent / "pending_blocks.json"
+        existing: list = []
+        if blocks_path.exists():
+            try:
+                with open(blocks_path, 'r') as f:
+                    existing = json.load(f)
+            except Exception:
+                existing = []
+        merged = list({ip for ip in existing + ips})
+        with open(blocks_path, 'w') as f:
+            json.dump(merged, f)
+        self.log(f"Queued {len(ips)} IP(s) for firewall block: {ips}")
+
     def heartbeat_cycle(self):
         """Send periodic heartbeat and handle uninstall requests"""
         node_id = self.config.get_node_id()
@@ -197,13 +260,30 @@ class DeceptionAgent:
             self.log("Heartbeat sent - node is active")
         else:
             self.log("Heartbeat failed")
+
+        # Deploy additional decoys if the dashboard increased the requested count
+        new_config = result.get("deployment_config", {})
+        if new_config and new_config != self._last_deployment_config:
+            self._last_deployment_config = dict(new_config)
+            self._on_deployment_config_updated(new_config)
+
+        # Process any IP block commands queued by the dashboard
+        pending = result.get("pending_blocks", [])
+        if pending:
+            self._write_pending_blocks(pending)
+
         if result.get("uninstall"):
             print("\n⚠️  Uninstall requested by dashboard. Removing agent...")
             self.handle_uninstall(node_id, node_api_key)
             self.running = False
 
     def handle_uninstall(self, node_id: str, node_api_key: str):
-        """Remove agent from the system and notify backend"""
+        """Remove agent from the system and notify backend.
+        Priority order:
+          1. Read manifest → delete every tracked decoy/honeytoken by exact path
+          2. Pattern-scan strategic dirs as fallback for anything not in manifest
+          3. Remove scheduled task and installation directory
+        """
         try:
             self.registration.send_uninstall_complete(node_id, node_api_key)
         except Exception:
@@ -212,27 +292,37 @@ class DeceptionAgent:
         install_dir = Path(__file__).resolve().parent
         system = platform.system().lower()
 
+        # Collect manifest paths (exact files we deployed)
+        manifest_paths = self._load_manifest_paths()
+
+        # Also include manifest files themselves so they are cleaned up
+        manifest_file_locations = [
+            str(Path.home() / "AppData" / "Local" / ".cache" / ".honeytoken_manifest.json"),
+            str(Path.home() / ".cache" / ".honeytoken_manifest.json"),
+            str(install_dir / "deployment_manifest.json"),
+        ]
+        all_exact_paths = manifest_paths + manifest_file_locations
+
         if system == "windows":
-            # PowerShell script with elevation to delete task, folder, and honeytokens
+            # Build the exact-path deletion block for PowerShell
+            exact_deletions = "\n".join(
+                f'Remove-Item -LiteralPath "{p}" -Force -ErrorAction SilentlyContinue'
+                for p in all_exact_paths
+            )
+
             ps_script = f"""
 $ErrorActionPreference = 'SilentlyContinue'
 
 # Request admin elevation if needed
 if (-NOT ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] 'Administrator')) {{
-    Start-Process powershell.exe -Verb runas -ArgumentList "-Command", "$_"
+    Start-Process powershell.exe -Verb runas -ArgumentList "-File", $MyInvocation.MyCommand.Path
     exit
 }}
 
-# Delete scheduled task
-schtasks /Delete /TN DecoyVerseAgent /F
+# ── 1. Delete exact manifest files (tracked decoys & honeytokens) ─────────
+{exact_deletions}
 
-# Wait for task to be deleted
-Start-Sleep -Seconds 2
-
-# Delete installation directory
-Remove-Item -Path "{install_dir}" -Recurse -Force -ErrorAction SilentlyContinue
-
-# Delete deployed honeytokens from strategic locations
+# ── 2. Pattern-scan fallback (catches anything not in manifest) ───────────
 $home = [Environment]::GetFolderPath('UserProfile')
 $honeytoken_locations = @(
     "$home\\Documents",
@@ -241,24 +331,31 @@ $honeytoken_locations = @(
     "$home\\.docker",
     "$home\\.kube",
     "$home\\.azure",
-    "$home\\Downloads"
+    "$home\\Downloads",
+    "$home\\AppData\\Local\\.cache"
 )
-
-# Files to remove (honeytokens)
-$honeytoken_files = @(
+$honeytoken_patterns = @(
     '*aws*', '*credentials*', '*secrets*', '*password*', '*token*', '*key*',
     '*db_*', '*database*', '*mysql*', '*postgres*', '*mongodb*',
     '*id_rsa*', '*id_ed25519*', '*authorized_keys*', '*.pem', '*.key',
-    '*kubeconfig*', '*kube_config*', '*.env'
+    '*kubeconfig*', '*kube_config*', '*.env', '*honeytoken*', '*decoy*'
 )
-
-foreach ($location in $honeytoken_locations) {{
-    if (Test-Path $location) {{
-        foreach ($pattern in $honeytoken_files) {{
-            Get-ChildItem -Path $location -Filter $pattern -Force -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+foreach ($loc in $honeytoken_locations) {{
+    if (Test-Path $loc) {{
+        foreach ($pat in $honeytoken_patterns) {{
+            Get-ChildItem -Path $loc -Filter $pat -Force -ErrorAction SilentlyContinue |
+                Remove-Item -Force -ErrorAction SilentlyContinue
         }}
     }}
 }}
+
+# ── 3. Delete scheduled task ──────────────────────────────────────────────
+schtasks /Delete /TN DecoyVerseAgent /F 2>$null
+schtasks /Delete /TN DecoyVerseFirewall /F 2>$null
+Start-Sleep -Seconds 2
+
+# ── 4. Delete installation directory ─────────────────────────────────────
+Remove-Item -Path "{install_dir}" -Recurse -Force -ErrorAction SilentlyContinue
 
 exit
 """
@@ -272,6 +369,13 @@ exit
             except Exception as e:
                 self.log(f"Uninstall error: {e}")
         else:
+            # Linux / macOS — delete exact manifest files first, then install dir
+            for path in all_exact_paths:
+                try:
+                    if os.path.exists(path):
+                        os.remove(path)
+                except Exception:
+                    pass
             try:
                 shutil.rmtree(install_dir, ignore_errors=True)
             except Exception:
@@ -314,9 +418,13 @@ exit
         print(f"   Monitoring: {self.watch_dir}")
         print(f"   Check interval: {interval} seconds")
         print(f"   Backend connection: {'✓ Active' if backend_available else '✗ Inactive'}")
+        print(f"   Network monitoring: ✓ Active (outbound connections)")
+        print(f"   Packet monitoring:  ✓ Active (inbound scan detection — requires admin)")
         print(f"\n   Press Ctrl+C to stop\n")
         self.log(f"Agent started - monitoring {len(self.monitor.monitored_files)} files, interval={interval}s")
-        
+
+        self.network_monitor.start()
+        self.packet_monitor.start()
         self.running = True
         
         try:
@@ -333,6 +441,8 @@ exit
     def stop(self):
         """Stop the agent gracefully"""
         self.running = False
+        self.network_monitor.stop()
+        self.packet_monitor.stop()
         print("\n\n" + "="*70)
         print("🛑 AGENT STOPPED")
         print("="*70)

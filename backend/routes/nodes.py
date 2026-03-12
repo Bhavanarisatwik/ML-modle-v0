@@ -153,8 +153,8 @@ async def delete_node(
             raise HTTPException(status_code=403, detail="Permission denied")
 
         if force:
-            await db_service.delete_node_and_decoys(node_id)
-            return {"status": "success", "message": f"Node {node_id} deleted"}
+            await db_service.delete_all_node_data(node_id)
+            return {"status": "success", "message": f"Node {node_id} and all related data deleted"}
 
         await db_service.request_node_uninstall(node_id)
         return {

@@ -134,6 +134,11 @@ class AgentEvent(BaseModel):
     action: str = Field(..., max_length=50, description="Action: ACCESSED, MODIFIED")
     severity: str = Field(..., max_length=20, description="Severity: CRITICAL, HIGH, MEDIUM, LOW")
     alert_type: str = Field(..., max_length=100, description="Alert type")
+    # Process metadata (captured by file_monitor via psutil — optional)
+    process_name: Optional[str] = Field(default=None, max_length=255, description="Process that accessed the file")
+    pid: Optional[int] = Field(default=None, description="Process ID")
+    process_user: Optional[str] = Field(default=None, max_length=100, description="OS user running the process")
+    cmdline: Optional[str] = Field(default=None, max_length=500, description="Process command line")
 
 
 class MLPrediction(BaseModel):
@@ -146,6 +151,10 @@ class MLPrediction(BaseModel):
 
 class Alert(BaseModel):
     """High-risk alert"""
+
+    class Config:
+        allow_mutation = True
+
     alert_id: Optional[str] = None
     timestamp: str
     source_ip: str
@@ -158,6 +167,38 @@ class Alert(BaseModel):
     extra: Optional[Dict[str, Any]] = None
     node_id: Optional[str] = None
     user_id: Optional[str] = None
+    status: Optional[str] = "open"
+    notified: bool = False
+    notification_status: Optional[str] = None
+
+
+class NetworkEvent(BaseModel):
+    """Network connection event from agent network monitor"""
+    node_id: Optional[str] = None
+    user_id: Optional[str] = None
+    timestamp: str
+    source_ip: str
+    dest_ip: str
+    dest_port: int
+    protocol: str = "TCP"
+    status: str = "ESTABLISHED"
+    process_name: Optional[str] = None
+    rule_score: int = 0
+    rule_triggers: List[str] = Field(default_factory=list)
+    ml_attack_type: Optional[str] = None
+    ml_risk_score: Optional[int] = None
+    ml_confidence: Optional[float] = None
+
+
+class BlockedIP(BaseModel):
+    """IP block request and its status"""
+    node_id: str
+    ip_address: str
+    requested_at: str
+    requested_by_user_id: Optional[str] = None
+    alert_id: Optional[str] = None
+    status: str = "pending"  # pending | active | failed
+    confirmed_at: Optional[str] = None
 
 
 class AttackerProfile(BaseModel):
@@ -191,4 +232,20 @@ class RecentAttack(BaseModel):
     service: str
     activity: str
     attack_type: Optional[str] = None
+
+
+class SecurityReport(BaseModel):
+    """Aggregated security health report — one per user, upserted on generate"""
+    user_id: str
+    generated_at: str                  # ISO datetime string
+    health_score: float                # 0.0–10.0 (higher = healthier)
+    total_nodes: int
+    online_nodes: int
+    total_alerts: int
+    open_alerts: int
+    critical_alerts: int               # alerts with risk_score >= 8
+    top_attack_types: List[dict]       # [{"type": str, "count": int}]
+    top_attackers: List[dict]          # [{"ip", "risk_score", "attack_count", "most_common_attack"}]
+    recent_events_count: int           # events in last 24h
+    recommendations: List[str]
     risk_score: Optional[int] = None
