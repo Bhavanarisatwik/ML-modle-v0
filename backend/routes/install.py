@@ -284,10 +284,40 @@ foreach ($cmd in @("python", "python3", "py")) {{
 }}
 
 if (-not $pythonCmd) {{
-    Write-Status "      ERROR: Python 3.10+ required!" "Red"
-    Write-Status "      Download from: https://python.org" "Yellow"
-    if (-not $Silent) {{ pause }}
-    exit 1
+    Write-Status "      Python not found. Auto-downloading Python 3.12..." "Yellow"
+    try {{
+        $PythonUrl = "https://www.python.org/ftp/python/3.12.7/python-3.12.7-amd64.exe"
+        $PythonInstaller = "$env:TEMP\\python-installer.exe"
+        Write-Status "      Downloading Python 3.12.7 from python.org..." "Yellow"
+        Invoke-WebRequest -Uri $PythonUrl -OutFile $PythonInstaller -UseBasicParsing -ErrorAction Stop
+        Write-Status "      Installing Python 3.12.7 silently (this may take a minute)..." "Yellow"
+        Start-Process -FilePath $PythonInstaller -ArgumentList "/quiet InstallAllUsers=1 PrependPath=1 Include_test=0" -Wait -NoNewWindow
+        Remove-Item $PythonInstaller -Force -ErrorAction SilentlyContinue
+        # Refresh PATH so python.exe is visible in this session
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+        # Re-check for python
+        foreach ($cmd in @("python", "python3", "py")) {{
+            try {{
+                $ver = & $cmd --version 2>&1
+                if ($ver -like "*Python 3*") {{
+                    $pythonCmd = $cmd
+                    Write-Status "      Python installed: $ver" "Green"
+                    break
+                }}
+            }} catch {{}}
+        }}
+        if (-not $pythonCmd) {{
+            Write-Status "      ERROR: Python installation failed. Please restart and re-run." "Red"
+            if (-not $Silent) {{ pause }}
+            exit 1
+        }}
+    }} catch {{
+        Write-Status "      ERROR: Failed to download Python: $($_.Exception.Message)" "Red"
+        Write-Status "      Please install Python 3.12+ manually from https://python.org" "Yellow"
+        Write-Status "      IMPORTANT: Check 'Add Python to PATH' during installation!" "Yellow"
+        if (-not $Silent) {{ pause }}
+        exit 1
+    }}
 }}
 
 # Step 3: Copy configuration
